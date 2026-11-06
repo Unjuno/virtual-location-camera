@@ -18,6 +18,10 @@ jobs:
           node-version: '22'
       - name: Test zero-dependency core
         run: node --test tests/*.test.mjs
+      - name: Parse browser app and core JavaScript
+        run: |
+          node --check src/app.mjs
+          node --check src/core.mjs
       - name: Static entrypoint checks
         run: |
           test -f index.html
