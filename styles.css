@@ -1,5 +1,6 @@
 :root{color-scheme:dark;--bg:#090d16;--panel:#111722;--border:#273141;--text:#eaf0f8;--muted:#8c9bab;--primary:#9ddaf1;--soft:#1a2431;--danger:#ffa4a4}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
 button,input,select{font:inherit}
 button{cursor:pointer}
