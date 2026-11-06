@@ -9,6 +9,8 @@
     "test": "node --test tests/*.test.mjs",
     "check": "node --check src/app.mjs && node --check src/core.mjs && node --check api/render.js && node --check api/health.js"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": "22.x"
+  },
   "license": "MIT"
 }
