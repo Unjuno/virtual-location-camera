@@ -1,0 +1,14 @@
+{
+  "name": "virtual-location-camera",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Geospatial virtual photography with optional authenticated GPT Image editing",
+  "scripts": {
+    "dev": "node server/dev.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check src/app.mjs && node --check src/core.mjs && node --check api/render.js && node --check api/health.js"
+  },
+  "engines": { "node": ">=22" },
+  "license": "MIT"
+}
