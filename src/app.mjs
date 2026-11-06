@@ -143,6 +143,10 @@ function moveCamera() {
   let c;
   try { c = cameraInputs(); }
   catch (error) { notice(error.message, true); $("latitude").focus(); return; }
+  if (Math.abs(c.lat) > 85.0511) {
+    notice("このWeb地図では北緯・南緯85.0511°を超える地域は表示できません。", true);
+    return;
+  }
   if (!map) {
     notice("座標を設定しました。3D地図の接続後に反映されます。");
     return;
@@ -356,6 +360,48 @@ function exportScene() {
   } catch (error) { notice(error.message, true); }
 }
 
+
+async function importScene(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    if (file.size > 200_000) throw new Error("撮影条件ファイルは200KB以下にしてください。");
+    const scene = JSON.parse(await file.text());
+    if (scene?.schemaVersion !== 1 || !scene.scene || !scene.subject) {
+      throw new Error("対応していない撮影条件ファイルです。");
+    }
+    const coordinates = parseLocation(scene.scene.lat, scene.scene.lon);
+    const camera = {
+      ...coordinates, zoom: Number(scene.scene.zoom),
+      pitch: Number(scene.scene.pitch), bearing: Number(scene.scene.bearing)
+    };
+    if (!Number.isFinite(camera.zoom) || camera.zoom < 1 || camera.zoom > 22
+      || !Number.isFinite(camera.pitch) || camera.pitch < 0 || camera.pitch > 85
+      || !Number.isFinite(camera.bearing) || camera.bearing < -180 || camera.bearing > 180) {
+      throw new Error("撮影条件のカメラ設定が不正です。");
+    }
+    placement = normalizePlacement(scene.subject);
+    setPosition();
+    $("preset").value = "custom";
+    $("latitude").value = String(camera.lat);
+    $("longitude").value = String(camera.lon);
+    $("zoom").value = String(camera.zoom);
+    $("pitch").value = String(camera.pitch);
+    $("bearing").value = String(camera.bearing);
+    updateCameraOutputs();
+    if (scene.subject.type === "person" || scene.subject.type === "product") {
+      useSample(scene.subject.type);
+      $("aiSubjectKind").value = scene.subject.type;
+    }
+    moveCamera();
+    notice("撮影条件を復元しました。アップロード画像本体は含まれないため、必要なら再指定してください。");
+  } catch (error) {
+    notice("撮影条件を読み込めません：" + error.message, true);
+  } finally {
+    event.target.value = "";
+  }
+}
+
 function initializeUI() {
   $("preset").addEventListener("change", event => loadPreset(event.target.value));
   $("flyTo").addEventListener("click", () => { $("preset").value = "custom"; moveCamera(); });
@@ -399,6 +445,7 @@ function initializeUI() {
   $("exposure").addEventListener("input", event => setExposure(event.target.value));
   $("shutter").addEventListener("click", takePhoto);
   $("sceneExport").addEventListener("click", exportScene);
+  $("sceneImport").addEventListener("change", importScene);
 
   actor.addEventListener("pointerdown", event => {
     if (event.button !== 0 && event.pointerType === "mouse") return;
