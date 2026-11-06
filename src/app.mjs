@@ -435,4 +435,182 @@ function initializeUI() {
 }
 
 initializeUI();
+
+// 05 / Generative photography. The scene and upload images are processed in
+// memory. Only an explicit consented request sends data to the private API.
+let aiReady = false;
+let referenceFile = null;
+let generatedPhoto = null;
+
+function photoCanvasForAI() {
+  if (!map || !mapLoaded || !mapIdle) throw new Error("3D地図がまだ撮影可能ではありません。");
+  if (!actorImg.complete || !actorImg.naturalWidth) throw new Error("被写体の読み込みが完了していません。");
+  const canvas = document.createElement("canvas");
+  canvas.width = 1280;
+  canvas.height = 720;
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) throw new Error("画像合成Canvasを初期化できません。");
+  context.filter = "brightness(" + exposure + ") saturate(1.1)";
+  context.drawImage(map.getCanvas(), 0, 0, 1280, 720);
+  context.filter = "none";
+  const gradient = context.createLinearGradient(0, 0, 0, 720);
+  gradient.addColorStop(0, "rgba(4,9,29,.16)");
+  gradient.addColorStop(1, "rgba(10,8,25,.10)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 1280, 720);
+  const rect = photoRect(actorImg.naturalWidth, actorImg.naturalHeight, placement, 1280, 720);
+  context.drawImage(actorImg, rect.x, rect.y, rect.width, rect.height);
+  return canvas;
+}
+
+function scaledImageData(image, longestSide, mime, quality) {
+  if (!image?.naturalWidth || !image?.naturalHeight) throw new Error("画像の縦横サイズを取得できません。");
+  const ratio = Math.min(1, longestSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("画像変換に失敗しました。");
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL(mime, quality);
+}
+
+function blobImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const photo = new Image();
+    photo.onload = () => { URL.revokeObjectURL(url); resolve(photo); };
+    photo.onerror = () => { URL.revokeObjectURL(url); reject(new Error("参照写真を読み込めませんでした。")); };
+    photo.src = url;
+  });
+}
+
+function updateAIStatus(value) { $("aiStatus").textContent = value; }
+
+async function checkAIReady() {
+  try {
+    const result = await fetch("./api/health", { cache: "no-store" });
+    if (!result.ok) throw new Error("server unavailable");
+    const status = await result.json();
+    aiReady = status.aiConfigured === true;
+    updateAIStatus(aiReady
+      ? "AI接続済み。管理者のアクセスコードと画像送信の同意が必要です。"
+      : "画像生成サーバーは未設定です。管理者がOPENAI_API_KEYとAPP_ACCESS_TOKENを設定してください。");
+  } catch {
+    aiReady = false;
+    updateAIStatus("この公開先にはAIサーバーがありません。VercelまたはローカルNodeサーバーで起動してください。");
+  }
+  $("aiRender").disabled = !aiReady;
+}
+
+async function generateAIPhoto() {
+  const button = $("aiRender");
+  if (!aiReady) { notice("生成AIサーバーが設定されていません。", true); return; }
+  const passcode = $("accessCode").value;
+  if (passcode.length < 16) { notice("16文字以上のアクセスコードを入力してください。", true); return; }
+  if (!$("rightsConsent").checked) { notice("画像の利用権とOpenAIへの送信に同意してください。", true); return; }
+  button.disabled = true;
+  button.textContent = "AIで写真を生成中…";
+  updateAIStatus("生成リクエストを送信しています。API利用料金が発生する場合があります。");
+  try {
+    await waitForMapIdle();
+    const composite = photoCanvasForAI().toDataURL("image/jpeg", 0.78);
+    const subject = scaledImageData(actorImg, 800, "image/png", 1);
+    const reference = referenceFile
+      ? scaledImageData(await blobImage(referenceFile), 1280, "image/jpeg", 0.76)
+      : null;
+    const c = currentCamera();
+    const response = await fetch("./api/render", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + passcode
+      },
+      body: JSON.stringify({
+        lat: c.lat, lon: c.lon,
+        composite, subject, reference,
+        subjectType: $("aiSubjectKind").value,
+        description: $("artDirection").value.slice(0, 600),
+        acceptRights: true
+      })
+    });
+    let output;
+    try { output = await response.json(); }
+    catch { throw new Error("生成サーバーの応答を読み込めませんでした。"); }
+    if (!response.ok) throw new Error(output?.error || "画像生成に失敗しました。");
+    if (!output?.image?.startsWith("data:image/webp;base64,")) throw new Error("生成画像データが不正です。");
+    generatedPhoto = output.image;
+    $("aiResultImage").src = output.image;
+    $("aiResult").hidden = false;
+    $("aiDownload").disabled = false;
+    updateAIStatus("AI生成完了。構図・人物の同一性・地理的な正確性は保証されません。");
+    notice("生成写真を表示しました。必要に応じて編集画面へ戻れます。");
+  } catch (error) {
+    console.error("AI generation failed", error.name);
+    const reason = error instanceof TypeError ? "ネットワークが切断されたか、サーバーへ接続できません。" : error.message;
+    updateAIStatus("生成失敗：" + reason);
+    notice("生成できませんでした：" + reason, true);
+  } finally {
+    button.disabled = !aiReady;
+    button.innerHTML = '<span>AI写真を生成する</span><span aria-hidden="true">✦</span>';
+  }
+}
+
+async function downloadGenerated() {
+  if (!generatedPhoto) { notice("生成された画像はありません。", true); return; }
+  try {
+    const img = $("aiResultImage");
+    if (typeof img.decode === "function") await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth || 1536;
+    canvas.height = img.naturalHeight || 864;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("出力用Canvasが使えません。");
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const bandHeight = 48;
+    ctx.fillStyle = "rgba(7,13,22,.82)";
+    ctx.fillRect(0, canvas.height - bandHeight, canvas.width, bandHeight);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "left";
+    ctx.font = "600 15px sans-serif";
+    ctx.fillText("AI GENERATED · NOT ON LOCATION", 20, canvas.height - 17);
+    ctx.textAlign = "right";
+    ctx.font = "13px sans-serif";
+    ctx.fillText("Scene © OpenFreeMap / OpenMapTiles / OpenStreetMap contributors", canvas.width - 20, canvas.height - 17);
+    const resultBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("画像を保存できません。")), "image/webp", 0.9);
+    });
+    downloadBlob(resultBlob, "virtual-location-ai-" + dateStamp() + ".webp");
+    notice("生成写真をWebPで保存しました。クレジットと生成画像表示を埋め込みました。");
+  } catch (error) {
+    notice("保存できませんでした：" + error.message, true);
+  }
+}
+
+function initializeAIUI() {
+  $("referenceUpload").addEventListener("change", event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!isSupportedImage(file)) {
+      notice("参照写真はPNG・JPEG・WebPの15MB以内にしてください。", true);
+      event.target.value = "";
+      return;
+    }
+    referenceFile = file;
+    $("referenceStatus").textContent = "選択中：" + file.name + "（生成時のみ送信）";
+    event.target.value = "";
+  });
+  $("aiRender").addEventListener("click", generateAIPhoto);
+  $("aiDownload").addEventListener("click", downloadGenerated);
+  $("editAgain").addEventListener("click", () => {
+    $("aiResult").hidden = true;
+    notice("編集画面へ戻りました。");
+  });
+  $("samplePerson").addEventListener("click", () => { $("aiSubjectKind").value = "person"; });
+  $("sampleProduct").addEventListener("click", () => { $("aiSubjectKind").value = "product"; });
+}
+
+initializeAIUI();
+checkAIReady();
+
 connectWorld();
