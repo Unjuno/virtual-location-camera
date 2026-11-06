@@ -204,7 +204,7 @@ async function connectWorld() {
   try {
     // Dynamic import keeps non-map controls usable if the CDN is unavailable.
     const maplibregl = await import("https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs");
-    if (!maplibregl.supported()) {
+    if (typeof maplibregl.supported === "function" && !maplibregl.supported()) {
       throw new Error("このブラウザではWebGLを利用できません。");
     }
     const c = cameraInputs();
