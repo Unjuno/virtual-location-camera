@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="緯度経度を指定し、実際の地理空間上で人物や商品を配置して合成写真を作るバーチャルカメラ。">
+  <title>Virtual Location Camera — World Studio</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">◎</div>
+      <div>
+        <strong>Virtual Location Camera</strong>
+        <small>WORLD STUDIO / GEOSPATIAL COMPOSITOR</small>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="tag">NYC · NIGHT</span>
+      <span class="chip"><span class="dot"></span> 3D CITY SCENE</span>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="panel left-panel" aria-label="撮影地点とカメラ">
+      <div class="panel-head">
+        <span class="kicker">01 / WORLD</span>
+        <h2>ロケーション</h2>
+        <p>場所を選ぶか、緯度・経度を直接入力してください。</p>
+      </div>
+
+      <div class="field">
+        <label for="preset">プリセット</label>
+        <select id="preset">
+          <option value="times-square">New York · Times Square</option>
+          <option value="brooklyn-bridge">New York · Brooklyn Bridge</option>
+          <option value="shibuya">Tokyo · Shibuya</option>
+          <option value="eiffel">Paris · Eiffel Tower</option>
+          <option value="london">London · Tower Bridge</option>
+          <option value="custom">任意の座標</option>
+        </select>
+      </div>
+      <div class="field-pair">
+        <div class="field">
+          <label for="latitude">緯度 / LAT</label>
+          <input id="latitude" type="text" inputmode="decimal" value="40.7580" spellcheck="false" aria-describedby="coordinateHelp">
+        </div>
+        <div class="field">
+          <label for="longitude">経度 / LON</label>
+          <input id="longitude" type="text" inputmode="decimal" value="-73.9855" spellcheck="false" aria-describedby="coordinateHelp">
+        </div>
+      </div>
+      <p id="coordinateHelp" class="hint">WGS84・十進度。例：40.7580, -73.9855</p>
+      <button class="primary wide" id="flyTo" type="button">座標へ移動 <span aria-hidden="true">↗</span></button>
+
+      <div class="section-divider"></div>
+      <div class="panel-head compact">
+        <span class="kicker">02 / CAMERA</span>
+        <h2>仮想カメラ</h2>
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="zoom">ズーム</label><output id="zoomValue" for="zoom">16.8</output></div>
+        <input id="zoom" type="range" min="1" max="22" step="0.1" value="16.8">
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="pitch">チルト</label><output id="pitchValue" for="pitch">68°</output></div>
+        <input id="pitch" type="range" min="0" max="85" step="1" value="68">
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="bearing">方位</label><output id="bearingValue" for="bearing">-19°</output></div>
+        <input id="bearing" type="range" min="-180" max="180" step="1" value="-19">
+      </div>
+      <p class="hint">地図上をドラッグして移動・回転できます。ホイールでズーム。</p>
+
+      <div class="field readonly-field">
+        <span>シーン</span>
+        <strong>夜景スタイル / 3D建物</strong>
+        <small>照明は地図スタイルによる近似です。現実の夜景の再現ではありません。</small>
+      </div>
+    </aside>
+
+    <main class="main-panel" aria-label="バーチャル撮影プレビュー">
+      <div class="stage-top">
+        <div>
+          <span class="kicker">LIVE VIEW / 16:9</span>
+          <h1>World viewfinder</h1>
+        </div>
+        <span id="mapState" class="state-badge" role="status">3D地図を接続中</span>
+      </div>
+
+      <div class="stage-wrap">
+        <div id="stage" class="stage">
+          <div id="map" aria-label="世界の3D地図"></div>
+          <div class="night-treatment" aria-hidden="true"></div>
+          <div id="loadingOverlay" class="loading-overlay">
+            <div class="load-orbit" aria-hidden="true"></div>
+            <strong>地理データを読み込み中…</strong>
+            <p>MapLibre GL JS + OpenFreeMap</p>
+          </div>
+          <div id="subjectHandle" class="subject-handle" role="img" aria-label="移動できる被写体">
+            <img id="subjectImage" alt="被写体のプレビュー" draggable="false">
+            <div class="subject-outline" aria-hidden="true"></div>
+          </div>
+          <div class="viewfinder-corner tl"></div>
+          <div class="viewfinder-corner tr"></div>
+          <div class="viewfinder-corner bl"></div>
+          <div class="viewfinder-corner br"></div>
+          <div class="crosshair" aria-hidden="true">＋</div>
+          <div class="scene-label">SYNTHETIC COMPOSITE <span>•</span> NOT ON-LOCATION</div>
+        </div>
+      </div>
+
+      <div class="stage-bottom">
+        <div class="help-text">被写体をドラッグして配置 ／ 背景をドラッグして視点変更</div>
+        <div class="map-credit">© <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a> / © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a></div>
+      </div>
+      <p id="message" class="message" role="status" aria-live="polite">地図データの読み込みを確認しています。</p>
+    </main>
+
+    <aside class="panel right-panel" aria-label="被写体と撮影">
+      <div class="panel-head">
+        <span class="kicker">03 / SUBJECT</span>
+        <h2>被写体</h2>
+        <p>人物・商品の画像をシーンの前面に配置します。</p>
+      </div>
+
+      <div class="subject-choice">
+        <button type="button" id="samplePerson" class="choice selected" aria-pressed="true">
+          <span class="choice-icon">◉</span><strong>人物</strong><small>サンプル</small>
+        </button>
+        <button type="button" id="sampleProduct" class="choice" aria-pressed="false">
+          <span class="choice-icon">▣</span><strong>商品</strong><small>サンプル</small>
+        </button>
+      </div>
+      <label class="upload-control" for="imageUpload">
+        <span>自分の被写体画像を選ぶ</span><strong>アップロード ⇧</strong>
+      </label>
+      <input id="imageUpload" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      <p class="hint">推奨：背景透過PNGまたはWebP、15MB以下。画像はブラウザ内だけで処理します。</p>
+
+      <div class="section-divider"></div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="subjectScale">被写体サイズ</label><output for="subjectScale" id="scaleValue">21%</output></div>
+        <input id="subjectScale" type="range" min="6" max="85" value="21" step="1">
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="exposure">背景の明るさ</label><output for="exposure" id="exposureValue">100%</output></div>
+        <input id="exposure" type="range" min="50" max="140" value="100" step="5">
+      </div>
+      <button id="resetSubject" type="button" class="secondary wide">被写体の配置をリセット</button>
+
+      <div class="section-divider"></div>
+      <div class="panel-head compact">
+        <span class="kicker">04 / CAPTURE</span>
+        <h2>シャッター</h2>
+      </div>
+      <div class="capture-details">
+        <div><span>出力</span><strong>1600 × 900 PNG</strong></div>
+        <div><span>保存形式</span><strong>背景 + 2D被写体</strong></div>
+      </div>
+      <button id="shutter" type="button" class="shutter" disabled><span class="shutter-ring">●</span><span>写真を保存</span></button>
+      <button id="sceneExport" type="button" class="secondary wide">撮影条件をJSON保存</button>
+      <p class="hint">地理空間の3D表示を使った合成写真です。AI画像生成、人物の3D化、物理的な影・遮蔽は未実装です。</p>
+    </aside>
+  </div>
+
+  <footer class="app-footer"><span>VIRTUAL LOCATION CAMERA · OPEN SOURCE MVP</span><span>Map data © OpenStreetMap contributors · MapLibre GL JS · OpenFreeMap</span></footer>
+  <script type="module" src="./src/app.mjs"></script>
+</body>
+</html>
