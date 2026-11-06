@@ -1,91 +1,121 @@
 # Virtual Location Camera
 
-**世界中を仮想撮影スタジオにする**オープンソースのWebアプリMVPです。任意の緯度・経度を指定し、OpenStreetMap由来の3D建物データ上でカメラを操作し、人物・商品の画像を前面に配置して合成写真を保存できます。
+**場所を選び、被写体を置き、仮想カメラで撮る。**
 
-> **重要:** 現時点ではAIが学習した「ワールドモデル」でも、生成AIによるフォトリアルな写真生成でもありません。MapLibre GL JS と OpenFreeMap を使用した **3D地理空間シーン + 2D画像合成** です。地図の夜間スタイルも実在のネオンや街灯を忠実に再現しません。撮影画像は現地で撮影した証拠として扱わないでください。
+3D地理空間データと生成AIを組み合わせて、現地へ行かずに人物・商品写真を作るオープンソースWebアプリです。最初の撮影地点はニューヨーク・タイムズスクエアの夜間スタイルです。世界各地の緯度・経度を指定できます。
 
-## 実装済み機能
+> **重要:** 現地の実景を厳密に再現するワールドモデルではありません。現時点では、MapLibre GL JSとOpenFreeMapによる地理空間3Dシーン、2D被写体の配置、任意の実景参照写真、条件付きGPT Image編集を組み合わせています。生成結果は**合成写真**です。実際の地理・人物・商品ロゴの忠実な再現は保証されません。
 
-- 初期地点: New York / Times Square（夜のダークマップ）
-- 任意のWGS84緯度・経度の入力（緯度 -90～90、経度 -180～180）
-- 世界5地点のプリセット
-- MapLibre GL JS v6.16.0 による地理空間描画とOpenFreeMapの3D建物（高さのデータがある地域）
-- カメラのパン・回転・チルト・ズーム
-- サンプル人物/商品、または手元のPNG/JPEG/WebP画像を配置・ドラッグ・拡大縮小
-- 背景露光調整、1600 × 900 PNG撮影、出典・合成画像表示の焼き込み
-- 座標・カメラ・被写体の配置をJSONに保存（画像本体は含まない）
-- 画像はサーバにアップロードせず、ブラウザ内でのみ処理
+## 機能
 
-## 起動
+| 機能 | 提供内容 |
+| --- | --- |
+| 3D地図 | OpenFreeMap/OpenStreetMap由来の建物。WebGL2対応ブラウザで操作 |
+| 場所 | ニューヨーク、ブルックリン、東京、パリ、ロンドンおよび任意のWGS84緯度経度 |
+| カメラ | マウス操作、ズーム・ピッチ・方位調整 |
+| 被写体 | 人物・商品サンプル、ローカルPNG/JPEG/WebPアップロード |
+| 合成 | ドラッグ配置、サイズ変更、明るさ調整、1600×900 PNG保存 |
+| AI写真化 | 認証付きサーバーがOpenAIの画像編集APIへ構図画像+被写体+任意の実景参照を送信 |
+| AI出力 | 1536×864 WebP（生成画像明記と地図出典表示を埋め込んで保存） |
+| 再現性 | カメラ・被写体の配置JSON保存・読み込み。アップロード画像本体は保存しません |
+| プライバシー | 通常の合成はブラウザ内処理。AI生成を同意した場合のみ外部APIへ送信 |
 
-Node.jsやnpmのインストールは必須ではありませんが、ES Modulesを使用するため `file://` ではなくローカルHTTPサーバから開いてください。
+### アーキテクチャ
+
+```text
+Browser (WebGL2 + Canvas 2D)
+  ├── MapLibre GL JS 6.16.0 → OpenFreeMap vector tiles → 3D buildings
+  ├── Subject PNG/JPEG/WebP → draggable 2D layer → local PNG
+  ├── Optional reference photograph
+  └── Authenticated POST /api/render
+                ↓
+Node.js 22 / Vercel Function (OPENAI_API_KEY is server-only)
+  ├── Access code / same-origin / MIME signatures / size / coordinate checks
+  ├── Composition JPEG + subject PNG + optional reference JPEG
+  └── OpenAI Images Edits, gpt-image-2.5-flare
+                ↓
+Generated WebP → browser preview → WebP with synthetic label + attribution
+```
+
+**これは学習型ワールドモデルではありません。** 実際の3D地図を幾何学的な構図のガイドに利用するハイブリッドアーキテクチャです。
+
+## ローカル起動
+
+Node.js 22以降が必要です。アプリ自体は外部npm依存を持たないため、`npm install` は不要です。
 
 ```bash
 git clone https://github.com/Unjuno/virtual-location-camera.git
 cd virtual-location-camera
-python3 -m http.server 8000
+npm run dev
 ```
 
-`http://localhost:8000` をChrome、Firefox、SafariなどWebGL2対応ブラウザで開きます。外部ネットワーク（MapLibre CDN / OpenFreeMapタイルサービス）は必須で、オフライン環境では3D地図を表示できません。
+`http://localhost:8000` を開きます。OpenFreeMapタイルとMapLibreのCDNを読むためネットワーク接続が必要です。
 
-**GitHub Pages** での公開も可能な静的サイト構成です。Settings → Pages → Deploy from a branch → main / root を選んでください。公開直後からWebGL2対応端末で利用できます（データ供給元の制約に依存）。
+無料の3D合成写真モードはAPIキー不要です。AI写真化には次の設定が必要です。
 
-## 使い方
+```bash
+cp .env.example .env
+# .envをローカルで編集。秘密鍵やアクセスコードをGitHubへ登録しない
+npm run dev
+```
 
-1. 「ロケーション」でニューヨーク、東京などを選ぶか、緯度経度を入力して「座標へ移動」
-2. 地図上でカメラを動かし構図を調整（マウスまたはカメラのスライダー）
-3. 人物・商品を選び、必要に応じて透明背景の画像をアップロード
-4. 被写体をドラッグ、サイズと明るさを調整
-5. 「写真を保存」から1600×900 PNGをダウンロード
+`.env` に以下を設定してください：
 
-「撮影条件をJSON保存」からシーンの座標やカメラ状態をバックアップできます。**シーンJSONの読み込み機能は未実装**であり、撮影再現を支援するメタデータ書き出しのみです。
+- `OPENAI_API_KEY`：OpenAI Platformのプロジェクト用APIキー
+- `APP_ACCESS_TOKEN`：独自のランダムな16文字以上（32文字以上を推奨）のアクセスコード
+- `OPENAI_IMAGE_MODEL`：`gpt-image-2.5-flare`（既定）または`gpt-image-2.5-sunburst`
+
+AI利用時には右パネルへ`APP_ACCESS_TOKEN`を入力します。**APIキーそのものはブラウザに入力しません。**
+
+## Vercelへのデプロイ
+
+1. VercelでGitHubリポジトリ`Unjuno/virtual-location-camera`をインポート。
+2. Framework PresetはOther（vanilla static HTML + Node.js Functions）、ルートは`/`。
+3. Productionの環境変数に`OPENAI_API_KEY`と`APP_ACCESS_TOKEN`を設定。任意で`OPENAI_IMAGE_MODEL`。
+4. デプロイし、`/api/health`で`aiConfigured: true` を確認。
+5. 撮影画面で地図を表示、画像・撮影条件を設定して生成。
+
+**セキュリティと費用：** 公開URLだけではAI生成できません。必ず強い`APP_ACCESS_TOKEN`を設定してください。個人・少人数の試作を前提とした方式であり、不特定多数へ公開する場合は本格的なユーザー認証、サーバー共有のレート制限、利用量の計測・課金、予算上限が必要です。OpenAI Platform側でも使用上限・アラートを設定してください。GitHub Pagesは静的サイトのため、AIサーバー機能を実行できません。
 
 ## テスト
 
 ```bash
-node --test tests/*.test.mjs
+npm run check
+npm test
 ```
 
-GitHub ActionsでNode.js 22の単体テストを自動実行します。テスト対象：WGS84入力検証、境界値、被写体配置の正規化、画像の縦横比保持、画像ファイル形式・上限、保存するシーンメタデータ。
+GitHub Actions（Node 22）で次を検証します：
 
-**検証範囲の限界:** CIはMapLibreタイル取得・実ブラウザ操作・写真PNG書き出し・WebGL描画のE2Eを実行していません。実データの見た目と出力の確認は、ネットワーク接続可能なWebGL2環境で手動実施してください。
+- 座標の境界・入力検証、被写体の縦横比と配置計算
+- 画像形式・アップロードサイズ
+- 撮影条件JSONの整合性
+- ブラウザDOMイベントのスモークテスト（モック）
+- サーバー画像形式シグネチャ、同意、認証、送信元制限
+- 画像編集APIのマルチ画像入力・品質・解像度のモック検証
 
-## アーキテクチャ
+**未自動検証：** OpenFreeMapライブタイルのWebGL描画、端末別PNG保存、OpenAIの実課金API呼び出し、人物同一性の知覚評価。実APIのE2Eテストには秘密鍵と課金承認が必要です。これらをPASSと主張しません。
 
-```text
-index.html / styles.css    撮影UI
-src/core.mjs              座標検証・配置計算・シーンJSON（Nodeテスト可能）
-src/app.mjs               MapLibre読み込み、3D建物、カメラ、合成、PNG出力
-tests/core.test.mjs       Unit tests（標準のnode:test）
-.github/workflows/test.yml GitHub Actions
-```
+## 現時点の制限事項
 
-**前提:** WGS84座標系の経緯度（十進度）、画角を意味するカメラのズームはMapLibreのレベル、被写体の位置はキャンバスに対する割合（0～1）、撮影サイズ1600×900 px。MapLibreはWebGL2を使用、画像合成はCanvas 2D。クラウドAIモデル/APIは利用していません。距離・影の物理精度は保証されません。
+- MapLibreの3D建物は建物の形状・高さ中心で、写真品質の街路テクスチャはありません。緯度約±85.0511°より極側は初期地図投影で扱いません。
+- 夜間はダーク地図のスタイル近似であり、実際の夜景照明・季節・気象の再現ではありません。
+- 2D配置のため被写体の3D回転、正確な影や建物との遮蔽はありません。
+- 生成AIはこれらの一部を視覚的に補間しますが、地理的忠実性、人物の同一性、商品ロゴ、物理精度は保証されません。
+- 生成前の画像・メタデータは明示的な同意時のみOpenAIへ送られます。サーバーは画像を永続保存しません。
+- MapLibreの地図タイルにCORS制約がある場合、Canvasでのエクスポートは失敗することがあります。アプリはエラーを通知します。
 
-## ライセンス・データ出典
+## データ・ライセンス
 
-- アプリのソースコード: [MIT](LICENSE) © 2026 Unjuno
-- MapLibre GL JS（ライブラリ）: BSD-3-Clause
-- OpenFreeMapの地図サービス: [OpenFreeMap](https://openfreemap.org/) の利用条件・出典要件に従う
-- 地図データ: © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)（ODbL）
-- OpenMapTiles等: 各プロジェクト・地図データのライセンスに従う
+- 本リポジトリのオリジナルコード：MIT License © 2026 Unjuno
+- MapLibre GL JS：BSD-3-Clause
+- 地理空間タイル：OpenFreeMap / OpenMapTiles / © OpenStreetMap contributors（ODbLおよび各提供元の規約）
+- アップロード画像：ユーザーが正当な利用権を持つもののみ
 
-画面および出力画像に **Map © OpenFreeMap / OpenMapTiles / OpenStreetMap contributors** を表示しています。各プロバイダの商用利用・画像書き出し条件は運用時に再確認してください。第三者の地図データにMITライセンスが適用されるわけではありません。
+アプリのMITライセンスは第三者コンテンツには適用されません。公開・商用運用前にタイルサービス、地理データ、生成物の利用条件と帰属表示を再確認してください。
 
-## 非実装／今後の課題
-
-- **画像生成AI**の接続（人物同一性・商品ロゴ維持・光と影の整合）
-- **写真測量データやPhotorealistic 3D Tiles** を使った高品質な都市形状（別契約・APIキー・出力制約あり）
-- 画像の背景除去（アップロードは透過PNGを推奨）
-- 3D空間での被写体配置、遮蔽、姿勢変更、カメラ移動に対する被写体の視点変化
-- 撮影地点の名称検索、シーンJSONからの復元、認証・課金
-- テスト専用WebGL2環境での地理タイル読込・PNGエクスポートのE2E
-
-Google Photorealistic 3D Tilesなどの第三者コンテンツを導入する場合、**閲覧可能なこと**と**生成画像に利用・再配布できること**は別です。権利処理と画像生成AIの学習使用許諾を必ず確認してください。
-
-## 参考ドキュメント
+## 参考資料
 
 - [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/)
-- [3D Buildings](https://maplibre.org/maplibre-gl-js/docs/examples/display-buildings-in-3d/)
 - [OpenFreeMap Quick Start](https://openfreemap.org/quick_start/)
-- [OpenStreetMap copyright](https://www.openstreetmap.org/copyright)
+- [OpenStreetMap Copyright](https://www.openstreetmap.org/copyright)
+- [OpenAI Image Generation API](https://developers.openai.com/api/docs/guides/image-generation)
