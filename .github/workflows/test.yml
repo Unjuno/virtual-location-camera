@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test zero-dependency core
+        run: node --test tests/*.test.mjs
+      - name: Static entrypoint checks
+        run: |
+          test -f index.html
+          test -f src/app.mjs
+          test -f src/core.mjs
