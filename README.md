@@ -1,121 +1,140 @@
 # Virtual Location Camera
 
-**場所を選び、被写体を置き、仮想カメラで撮る。**
+**現地に行かずに、地図で構図を決めて人物・商品写真を制作するバーチャルカメラ。**
 
-3D地理空間データと生成AIを組み合わせて、現地へ行かずに人物・商品写真を作るオープンソースWebアプリです。最初の撮影地点はニューヨーク・タイムズスクエアの夜間スタイルです。世界各地の緯度・経度を指定できます。
+[Webデモ（地図・2D画像合成）](https://virtual-location-camera.vercel.app)
 
-> **重要:** 現地の実景を厳密に再現するワールドモデルではありません。現時点では、MapLibre GL JSとOpenFreeMapによる地理空間3Dシーン、2D被写体の配置、任意の実景参照写真、条件付きGPT Image編集を組み合わせています。生成結果は**合成写真**です。実際の地理・人物・商品ロゴの忠実な再現は保証されません。
+## 動作方式（2026年11月）
 
-## 機能
+このアプリは2つのモードで動作します。
 
-| 機能 | 提供内容 |
-| --- | --- |
-| 3D地図 | OpenFreeMap/OpenStreetMap由来の建物。WebGL2対応ブラウザで操作 |
-| 場所 | ニューヨーク、ブルックリン、東京、パリ、ロンドンおよび任意のWGS84緯度経度 |
-| カメラ | マウス操作、ズーム・ピッチ・方位調整 |
-| 被写体 | 人物・商品サンプル、ローカルPNG/JPEG/WebPアップロード |
-| 合成 | ドラッグ配置、サイズ変更、明るさ調整、1600×900 PNG保存 |
-| AI写真化 | 認証付きサーバーがOpenAIの画像編集APIへ構図画像+被写体+任意の実景参照を送信 |
-| AI出力 | 1536×864 WebP（生成画像明記と地図出典表示を埋め込んで保存） |
-| 再現性 | カメラ・被写体の配置JSON保存・読み込み。アップロード画像本体は保存しません |
-| プライバシー | 通常の合成はブラウザ内処理。AI生成を同意した場合のみ外部APIへ送信 |
+| 機能 | Webデモ（Vercel） | ローカルAI（GPU搭載PC） |
+| --- | --- | --- |
+| WGS84座標・3D建物・カメラ移動 | 対応 | 対応 |
+| 人物/商品画像アップロード・配置 | 対応 | 対応 |
+| PNG 1600×900 合成撮影 | 対応 | 対応 |
+| シーンJSON保存/読込 | 対応 | 対応 |
+| Hugging Faceモデルで写真風生成 | **非対応** | **対応** |
+| OpenAI/HF推論APIキー | 不要 | 不要 |
 
-### アーキテクチャ
+**公開Web版から有料画像生成APIへの依存を削除しました。** ローカルAI版は Hugging Face Hub から公開モデルをダウンロードし、CUDA GPUまたはApple Silicon MPS上のDiffusersで推論します。Hugging Faceのサーバー推論、ZeroGPU、OpenAI APIは呼びません。初回ダウンロードはインターネット接続が必要です。その後は既に取得した重みを再利用します。
 
-```text
-Browser (WebGL2 + Canvas 2D)
-  ├── MapLibre GL JS 6.16.0 → OpenFreeMap vector tiles → 3D buildings
-  ├── Subject PNG/JPEG/WebP → draggable 2D layer → local PNG
-  ├── Optional reference photograph
-  └── Authenticated POST /api/render
-                ↓
-Node.js 22 / Vercel Function (OPENAI_API_KEY is server-only)
-  ├── Access code / same-origin / MIME signatures / size / coordinate checks
-  ├── Composition JPEG + subject PNG + optional reference JPEG
-  └── OpenAI Images Edits, gpt-image-2.5-flare
-                ↓
-Generated WebP → browser preview → WebP with synthetic label + attribution
-```
+選定モデル：
+- [stable-diffusion-v1-5/stable-diffusion-v1-5](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5)
+- ライセンス：**CreativeML OpenRAIL-M**（ソースコードのMITライセンスとは別。禁止用途や再配布条件を確認してください）
+- 手法：Stable Diffusion Image-to-Image（入力の地図背景から夜の都市の質感を補完）＋**元の被写体画像を画素レベルで再合成**
+- 出力：768×432 WebP。実写のような生成を試すためのMVP設定で、現地の事実を保証するものではありません。
 
-**これは学習型ワールドモデルではありません。** 実際の3D地図を幾何学的な構図のガイドに利用するハイブリッドアーキテクチャです。
+**これはゼロから学習したAIワールドモデルではありません。** 位置・地形・建物・カメラ構図は地理空間エンジン、写真風の画素生成は公開Diffusersモデル、人物・商品の保持は2Dアルファ合成が担当します。影、遮蔽、実際の夜景、建物の外観は厳密には再現されません。
 
-## ローカル起動
+## A. 公開Webデモ（GPU不要）
 
-Node.js 22以降が必要です。アプリ自体は外部npm依存を持たないため、`npm install` は不要です。
+https://virtual-location-camera.vercel.app
 
-```bash
+WebGL2対応ブラウザとネット接続が必要です。OpenFreeMap/MapLibreを使って地理空間の3D建物を描画します。夜景はダーク地図の近似で、衛星写真ではありません。
+
+1. ニューヨーク・東京などの地点を選ぶか、任意の緯度・経度を入力。
+2. カメラを動かし構図を決める。
+3. 透明PNGまたはWebPの人物・商品を追加し、サイズと位置を調整。
+4. 「写真を保存」で地図＋被写体のPNGを保存。
+
+VercelはGPU推論用に設定していないため、**「ローカルAIで写真化する」ボタンは無効**です。
+
+## B. Hugging Face公開モデルをローカルで動かす
+
+前提：
+- Python 3.11または3.12
+- CUDA対応GPU（NVIDIA）またはApple Silicon MacのMPS
+- PyTorch、Diffusers、Transformers、Pillowをインストール
+- モデル重みを保存する空きディスク領域と十分なRAM/VRAM
+- モデルの利用規約に同意できること
+
+GPUの必要メモリや速度は解像度・PyTorch・ドライバ・環境で異なります。**このリポジトリでは特定GPUでの推論ベンチマークを測定していません。** GPU非搭載PCで \`VLC_ALLOW_CPU=1\` を指定することもできますが、大幅に低速になる場合があります。
+
+\`\`\`bash
 git clone https://github.com/Unjuno/virtual-location-camera.git
 cd virtual-location-camera
-npm run dev
-```
+python3 -m venv .venv
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
 
-`http://localhost:8000` を開きます。OpenFreeMapタイルとMapLibreのCDNを読むためネットワーク接続が必要です。
+# CUDA環境では先に公式手順に沿ってCUDA対応PyTorchをインストール:
+# https://pytorch.org/get-started/locally/
+python -m pip install -r requirements-ai.txt
+python server/local_ai.py
+\`\`\`
 
-無料の3D合成写真モードはAPIキー不要です。AI写真化には次の設定が必要です。
+**http://127.0.0.1:8000** を開きます。
 
-```bash
-cp .env.example .env
-# .envをローカルで編集。秘密鍵やアクセスコードをGitHubへ登録しない
-npm run dev
-```
+\`/api/health\` が \`aiConfigured: true\` を返すと、画像生成が有効になります。最初の生成時にHugging Faceから公開モデルの重みがダウンロードされ、その後はローカルのGPUで推論します。**画像自体はHugging Face Inference Providersに送信されません。**
 
-`.env` に以下を設定してください：
+ローカルサーバーは安全のため \`127.0.0.1\` にのみバインドし、同一オリジン以外のリクエストを拒否します。公開インターネットへ直接転送・公開しないでください。ユーザー認証・共有レート制限・ジョブキューなどはありません。
 
-- `OPENAI_API_KEY`：OpenAI Platformのプロジェクト用APIキー
-- `APP_ACCESS_TOKEN`：独自のランダムな16文字以上（32文字以上を推奨）のアクセスコード
-- `OPENAI_IMAGE_MODEL`：`gpt-image-2.5-flare`（既定）または`gpt-image-2.5-sunburst`
+通常の無料デモをローカルで動かすだけならNode.js 22で \`npm run dev\` を利用できます（このNodeサーバーはAI生成に対応しません）。
 
-AI利用時には右パネルへ`APP_ACCESS_TOKEN`を入力します。**APIキーそのものはブラウザに入力しません。**
+### 画像の参照について
 
-## Vercelへのデプロイ
+- 参照写真なし：地図の背景画像をImg2Imgの初期画像として使います。地図は低詳細度のため、**実写の建築物と一致するとは限りません**。
+- 参照写真あり：指定した写真をImg2Imgの初期画像として使います。これは**地図で指定した視点と一致する保証がありません**。
+- 被写体：元のPNG/WebPを前面に上書き合成します。透明背景なら輪郭・色・ラベルを維持できますが、**周囲の自然な影・遮蔽・視点変化は自動では生成されません**。非透過JPEGは矩形の背景が残ります。
 
-1. VercelでGitHubリポジトリ`Unjuno/virtual-location-camera`をインポート。
-2. Framework PresetはOther（vanilla static HTML + Node.js Functions）、ルートは`/`。
-3. Productionの環境変数に`OPENAI_API_KEY`と`APP_ACCESS_TOKEN`を設定。任意で`OPENAI_IMAGE_MODEL`。
-4. デプロイし、`/api/health`で`aiConfigured: true` を確認。
-5. 撮影画面で地図を表示、画像・撮影条件を設定して生成。
-
-**セキュリティと費用：** 公開URLだけではAI生成できません。必ず強い`APP_ACCESS_TOKEN`を設定してください。個人・少人数の試作を前提とした方式であり、不特定多数へ公開する場合は本格的なユーザー認証、サーバー共有のレート制限、利用量の計測・課金、予算上限が必要です。OpenAI Platform側でも使用上限・アラートを設定してください。GitHub Pagesは静的サイトのため、AIサーバー機能を実行できません。
+この方式は「実写感」と「同じ人/商品を正確に残すこと」の初期トレードオフを検証するMVPです。より自然な照明や3D遮蔽には、局所inpainting、深度推定、ControlNet、IP-Adapterなどの追加開発が必要です。
 
 ## テスト
 
-```bash
+Node.js 22 + Python 3.11:
+
+\`\`\`bash
 npm run check
 npm test
-```
+python -m compileall -q server tests/test_local_ai.py
+python -m unittest discover -s tests -p 'test_local_ai.py' -v
+\`\`\`
 
-GitHub Actions（Node 22）で次を検証します：
+GitHub Actionsで、座標境界、画像バリデーション、UIイベント、Vercelの有料API無効化、ローカルサーバーのリクエスト検証・同一オリジン制限を確認します。
 
-- 座標の境界・入力検証、被写体の縦横比と配置計算
-- 画像形式・アップロードサイズ
-- 撮影条件JSONの整合性
-- ブラウザDOMイベントのスモークテスト（モック）
-- サーバー画像形式シグネチャ、同意、認証、送信元制限
-- 画像編集APIのマルチ画像入力・品質・解像度のモック検証
+**未検証の事項**：実GPUでのモデル重みのダウンロード/推論、OS/ドライバ別動作、WebGL2のライブ地図描画と保存画像の肉眼評価、地理的精度、実写への類似性。上記のユニットテストが通過しても、これらの品質は保証されません。
 
-**未自動検証：** OpenFreeMapライブタイルのWebGL描画、端末別PNG保存、OpenAIの実課金API呼び出し、人物同一性の知覚評価。実APIのE2Eテストには秘密鍵と課金承認が必要です。これらをPASSと主張しません。
+## 技術構成
 
-## 現時点の制限事項
+\`\`\`text
+Browser
+  ├─ MapLibre GL JS + OpenFreeMap → 3D地理データ・カメラ
+  ├─ PNG/WebP主体の2D被写体オーバーレイ → 即時合成PNG
+  └─ Local-only POST /api/render
+                    ↓
+Python 3.11+ 127.0.0.1:8000
+  ├─ 画像・位置情報・利用同意の検証
+  ├─ Diffusers AutoPipelineForImage2Image
+  ├─ Stable Diffusion 1.5 weights from Hugging Face Hub
+  ├─ CUDA/MPS (CPUはオプション)
+  └─ PILによる元の被写体の再合成 → WebP
+\`\`\`
 
-- MapLibreの3D建物は建物の形状・高さ中心で、写真品質の街路テクスチャはありません。緯度約±85.0511°より極側は初期地図投影で扱いません。
-- 夜間はダーク地図のスタイル近似であり、実際の夜景照明・季節・気象の再現ではありません。
-- 2D配置のため被写体の3D回転、正確な影や建物との遮蔽はありません。
-- 生成AIはこれらの一部を視覚的に補間しますが、地理的忠実性、人物の同一性、商品ロゴ、物理精度は保証されません。
-- 生成前の画像・メタデータは明示的な同意時のみOpenAIへ送られます。サーバーは画像を永続保存しません。
-- MapLibreの地図タイルにCORS制約がある場合、Canvasでのエクスポートは失敗することがあります。アプリはエラーを通知します。
+ファイル一覧：
+- \`index.html\` / \`styles.css\`：撮影UI
+- \`src/core.mjs\`：カメラ・配置計算
+- \`src/app.mjs\`：WebGL地図・シーン撮影・ローカルAI接続
+- \`server/local_ai.py\`：ローカル推論サーバー
+- \`server/dev.mjs\`：無料デモのNode開発サーバー
+- \`api/render.js\`：Vercelでは501を返し、外部課金推論を行わない
+- \`api/health.js\`：VercelではAI生成が無効と通知
+- \`tests/\`：Node/Pythonユニットテスト
+- \`LICENSE\`：アプリのMITライセンス
 
-## データ・ライセンス
+## ライセンスとデータ使用上の注意
 
-- 本リポジトリのオリジナルコード：MIT License © 2026 Unjuno
-- MapLibre GL JS：BSD-3-Clause
-- 地理空間タイル：OpenFreeMap / OpenMapTiles / © OpenStreetMap contributors（ODbLおよび各提供元の規約）
-- アップロード画像：ユーザーが正当な利用権を持つもののみ
+- このリポジトリで制作したコード：MIT
+- Stable Diffusion v1.5モデル重み：CreativeML OpenRAIL-M（商用利用の可否と条件を含め、全文を確認）
+- OpenFreeMap / OpenMapTiles / © OpenStreetMap contributors：地図の利用条件・ODbLと表示要件
+- アップロード写真：利用する人が権利を持つものに限定
 
-アプリのMITライセンスは第三者コンテンツには適用されません。公開・商用運用前にタイルサービス、地理データ、生成物の利用条件と帰属表示を再確認してください。
+写真の実在性を誤認させないよう、UIと保存画像に「AI GENERATED / NOT ON LOCATION」の表記を加えています。生成結果を現地で撮った証明写真として扱わないでください。
 
-## 参考資料
+## 一次資料
 
-- [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/)
-- [OpenFreeMap Quick Start](https://openfreemap.org/quick_start/)
-- [OpenStreetMap Copyright](https://www.openstreetmap.org/copyright)
-- [OpenAI Image Generation API](https://developers.openai.com/api/docs/guides/image-generation)
+- Hugging Face Diffusers [Image-to-image](https://huggingface.co/docs/diffusers/using-diffusers/img2img)
+- [Stable Diffusion v1.5 model card](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5)
+- [OpenFreeMap](https://openfreemap.org/)
+- [MapLibre](https://maplibre.org/maplibre-gl-js/docs/)
+- [OpenStreetMap attribution](https://www.openstreetmap.org/copyright)
