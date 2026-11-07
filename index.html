@@ -109,13 +109,15 @@
       <div class="stage-wrap">
         <div id="stage" class="stage" data-mode="map">
           <div id="map" aria-label="世界の3D地図"></div>
-          <img id="locationPhoto" class="location-photo" alt="利用許諾のある現地参照写真" draggable="false" hidden>
+          <img id="locationPhoto" class="location-photo-source" alt="利用許諾のある現地参照写真" draggable="false" hidden>
+          <canvas id="photoCanvas" class="location-photo" width="1600" height="900" hidden aria-label="選択した現地写真の撮影背景"></canvas>
           <div class="night-treatment" aria-hidden="true"></div>
           <div id="loadingOverlay" class="loading-overlay">
             <div class="load-orbit" aria-hidden="true"></div>
             <strong>地理データを読み込み中…</strong>
             <p>MapLibre GL JS + OpenFreeMap</p>
           </div>
+          <div id="contactShadow" class="contact-shadow" aria-hidden="true" hidden></div>
           <div id="subjectHandle" class="subject-handle" role="img" aria-label="移動できる被写体">
             <img id="subjectImage" alt="被写体のプレビュー" draggable="false">
             <div class="subject-outline" aria-hidden="true"></div>
@@ -163,6 +165,19 @@
         <button type="button" id="photoMode" aria-pressed="false">現地写真</button>
       </div>
       <button id="clearPhoto" type="button" class="secondary wide" disabled>現地写真を解除</button>
+      <div class="field slider-field">
+        <div class="field-top"><label for="photoZoom">背景の拡大率</label><output id="photoZoomValue" for="photoZoom">100%</output></div>
+        <input id="photoZoom" type="range" min="100" max="250" step="5" value="100" disabled>
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="photoFocusX">背景の横方向</label><output id="photoFocusXValue" for="photoFocusX">中央</output></div>
+        <input id="photoFocusX" type="range" min="0" max="100" step="1" value="50" disabled>
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="photoFocusY">背景の縦方向</label><output id="photoFocusYValue" for="photoFocusY">中央</output></div>
+        <input id="photoFocusY" type="range" min="0" max="100" step="1" value="50" disabled>
+      </div>
+      <p class="hint">写真の見切れを調整できます。生成AIによる架空の街並み補完ではなく、元写真のトリミングのみです。</p>
       <div class="section-divider"></div>
       <div class="panel-head">
         <span class="kicker">04 / SUBJECT</span>
@@ -193,6 +208,19 @@
         <div class="field-top"><label for="exposure">背景の明るさ</label><output for="exposure" id="exposureValue">100%</output></div>
         <input id="exposure" type="range" min="50" max="140" value="100" step="5">
       </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="subjectLight">被写体の明るさ</label><output id="subjectLightValue" for="subjectLight">100%</output></div>
+        <input id="subjectLight" type="range" min="50" max="150" value="100" step="5">
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="subjectWarmth">被写体の暖色補正</label><output id="subjectWarmthValue" for="subjectWarmth">0%</output></div>
+        <input id="subjectWarmth" type="range" min="0" max="30" value="0" step="1">
+      </div>
+      <div class="field slider-field">
+        <div class="field-top"><label for="shadowStrength">接地影の強さ</label><output id="shadowStrengthValue" for="shadowStrength">40%</output></div>
+        <input id="shadowStrength" type="range" min="0" max="80" value="40" step="5">
+      </div>
+      <p class="hint">人物・商品の接地影と色味を手動で調整します。物理的に正しい光源推定ではありません。</p>
       <button id="resetSubject" type="button" class="secondary wide">被写体の配置をリセット</button>
 
       <div class="section-divider"></div>
