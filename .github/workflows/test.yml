@@ -38,6 +38,9 @@ jobs:
           test -f src/scenes.mjs
           test -f api/scenes.js
           test -f api/scene-image.js
+          test -f src/panoramax.mjs
+          test -f api/panoramax-scenes.js
+          test -f api/panoramax-image.js
           test -f api/render.js
           test -f server/local_ai.py
 
