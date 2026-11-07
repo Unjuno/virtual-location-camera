@@ -159,8 +159,26 @@ function updateSubjectAppearance() {
   overlay.style.top = (g.centerY / CAPTURE.height * 100) + "%";
   overlay.style.width = (g.radiusX * 2 / CAPTURE.width * 100) + "%";
   overlay.style.height = (g.radiusY * 2 / CAPTURE.height * 100) + "%";
-  overlay.style.filter = "blur(" + (g.blur / CAPTURE.width * stage.clientWidth).toFixed(1) + "px)";
+  overlay.style.filter = "blur(" + (g.blur / CAPTURE.width * (stage.clientWidth || CAPTURE.width)).toFixed(1) + "px)";
   overlay.style.background = "rgba(4,8,18," + g.opacity.toFixed(3) + ")";
+}
+
+function syncStudioInputs() {
+  const pairs = [
+    ["subjectLight", studio.subjectExposure],
+    ["subjectWarmth", studio.subjectWarmth],
+    ["shadowStrength", studio.contactShadow],
+    ["photoZoom", studio.photoZoom],
+    ["photoFocusX", studio.photoFocusX],
+    ["photoFocusY", studio.photoFocusY]
+  ];
+  for (const [id, value] of pairs) {
+    const percent = Math.round(value * 100);
+    $(id).value = String(percent);
+    $(id + "Value").textContent = percent + "%";
+  }
+  updateSubjectAppearance();
+  renderPhotoPreview();
 }
 
 function updateStudioControl(id, key, divisor, outputSuffix) {
@@ -443,13 +461,7 @@ async function takePhoto() {
 
     renderSceneBackground(ctx, CAPTURE.width, CAPTURE.height);
 
-    const rect = photoRect(actorImg.naturalWidth, actorImg.naturalHeight, placement);
-    ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,.38)";
-    ctx.shadowBlur = 16;
-    ctx.shadowOffsetY = 11;
-    ctx.drawImage(actorImg, rect.x, rect.y, rect.width, rect.height);
-    ctx.restore();
+    drawSubjectWithShadow(ctx, actorImg, placement, CAPTURE.width, CAPTURE.height, studio);
 
     // Explicit synthetic disclosure and correct per-source attribution in pixels.
     ctx.fillStyle = "rgba(8,15,27,.85)";
@@ -483,7 +495,17 @@ function exportScene() {
       mode: photoActive() ? "user-photo" : "map",
       imageIncluded: false,
       locationVerified: false,
-      filePage: photoActive() ? photoSourcePageUrl : null
+      filePage: photoActive() ? photoSourcePageUrl : null,
+      photoZoom: studio.photoZoom,
+      photoFocusX: studio.photoFocusX,
+      photoFocusY: studio.photoFocusY,
+      exposure
+    };
+    snapshot.compositing = {
+      subjectExposure: studio.subjectExposure,
+      subjectWarmth: studio.subjectWarmth,
+      contactShadow: studio.contactShadow,
+      shadowSoftness: studio.shadowSoftness
     };
     const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
     downloadBlob(blob, "virtual-location-scene-" + dateStamp() + ".json");
@@ -512,6 +534,22 @@ async function importScene(event) {
       throw new Error("撮影条件のカメラ設定が不正です。");
     }
     placement = normalizePlacement(scene.subject);
+    const bg = scene.background && typeof scene.background === "object" ? scene.background : {};
+    const comp = scene.compositing && typeof scene.compositing === "object" ? scene.compositing : {};
+    studio = studioSettings({
+      ...studio,
+      subjectExposure: comp.subjectExposure,
+      subjectWarmth: comp.subjectWarmth,
+      contactShadow: comp.contactShadow,
+      shadowSoftness: comp.shadowSoftness,
+      photoZoom: bg.photoZoom,
+      photoFocusX: bg.photoFocusX,
+      photoFocusY: bg.photoFocusY
+    });
+    const importedExposure = Number(bg.exposure);
+    $("exposure").value = String(Math.round((Number.isFinite(importedExposure) && importedExposure >= 0.5 && importedExposure <= 1.4 ? importedExposure : 1) * 100));
+    setExposure($("exposure").value);
+    syncStudioInputs();
     setPosition();
     $("preset").value = "custom";
     $("latitude").value = String(camera.lat);
@@ -765,6 +803,12 @@ function initializeUI() {
     notice("被写体の配置を初期化しました。");
   });
   $("exposure").addEventListener("input", event => setExposure(event.target.value));
+  $("subjectLight").addEventListener("input", () => updateStudioControl("subjectLight", "subjectExposure", 100, v => v + "%"));
+  $("subjectWarmth").addEventListener("input", () => updateStudioControl("subjectWarmth", "subjectWarmth", 100, v => v + "%"));
+  $("shadowStrength").addEventListener("input", () => updateStudioControl("shadowStrength", "contactShadow", 100, v => v + "%"));
+  $("photoZoom").addEventListener("input", () => updateStudioControl("photoZoom", "photoZoom", 100, v => v + "%"));
+  $("photoFocusX").addEventListener("input", () => updateStudioControl("photoFocusX", "photoFocusX", 100, v => v + "%"));
+  $("photoFocusY").addEventListener("input", () => updateStudioControl("photoFocusY", "photoFocusY", 100, v => v + "%"));
   $("shutter").addEventListener("click", takePhoto);
   $("sceneExport").addEventListener("click", exportScene);
   $("sceneImport").addEventListener("change", importScene);
@@ -801,6 +845,7 @@ function initializeUI() {
     if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
   });
   setPosition();
+  syncStudioInputs();
   setExposure(100);
   useSample("person");
   updateCameraOutputs();
@@ -890,6 +935,7 @@ async function generateAIPhoto() {
         lat: c.lat, lon: c.lon,
         background, subject, reference,
         placement: normalizePlacement(placement),
+        compositing: studio,
         subjectType: $("aiSubjectKind").value,
         description: $("artDirection").value.slice(0, 600),
         acceptRights: true
