@@ -276,7 +276,7 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             page.locator("#photoRights").check()
             self.assertFalse(page.locator("#mapillaryShareAlike").is_checked())
             page.locator("#sceneResults .scene-card button").click()
-            page.wait_for_function("document.querySelector('#stage').dataset.mode==='photo'")
+            page.wait_for_function("() => document.querySelector('#stage').dataset.mode === 'photo'")
             self.assertFalse(page.locator("#shutter").is_disabled())
             self.assertIn("Panoramax",page.locator("#photoCredit").input_value())
             with page.expect_download(timeout=15000) as dl:
