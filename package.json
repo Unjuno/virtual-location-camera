@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node server/dev.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check src/app.mjs && node --check src/core.mjs && node --check src/location.mjs && node --check src/commons.mjs && node --check src/compositor.mjs && node --check src/scenes.mjs && node --check api/scenes.js && node --check api/scene-image.js && node --check api/render.js && node --check api/health.js"
+    "check": "node --check src/app.mjs && node --check src/core.mjs && node --check src/location.mjs && node --check src/commons.mjs && node --check src/compositor.mjs && node --check src/scenes.mjs && node --check src/panoramax.mjs && node --check api/panoramax-scenes.js && node --check api/panoramax-image.js && node --check api/scenes.js && node --check api/scene-image.js && node --check api/render.js && node --check api/health.js"
   },
   "engines": {
     "node": "22.x"
