@@ -504,8 +504,16 @@ async function takePhoto() {
     drawSubjectWithShadow(ctx, actorImg, placement, CAPTURE.width, CAPTURE.height, studio);
 
     // Explicit synthetic disclosure and correct per-source attribution in pixels.
+    const hasMapillaryLicense = selectedSceneEvidence?.provider === "mapillary";
     ctx.fillStyle = "rgba(8,15,27,.85)";
-    ctx.fillRect(0, CAPTURE.height - 52, CAPTURE.width, 52);
+    ctx.fillRect(0, CAPTURE.height - (hasMapillaryLicense ? 76 : 52), CAPTURE.width, hasMapillaryLicense ? 76 : 52);
+    if (hasMapillaryLicense) {
+      ctx.fillStyle = "#f5f7fb";
+      ctx.textAlign = "right";
+      ctx.font = "13px system-ui,sans-serif";
+      ctx.fillText("CC BY-SA 4.0 · modified street image · mapillary.com/app/?pKey=" + selectedSceneEvidence.id,
+        CAPTURE.width - 24, CAPTURE.height - 51);
+    }
     ctx.fillStyle = "#f5f7fb";
     ctx.font = "600 16px system-ui,sans-serif";
     ctx.textAlign = "left";
@@ -750,7 +758,16 @@ async function loadCommonsChoice(option) {
       throw new Error("この画像形式やファイルサイズは直接利用できません。");
     }
     const file = new File([blob], "commons-location-photo." + (blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg"), { type: blob.type });
-    installLocationPhoto(file, option.credit, option.filePage);
+    installLocationPhoto(file, option.credit, option.filePage, {
+      provider: "wikimedia-commons",
+      lat: option.lat, lon: option.lon,
+      distanceM: option.distanceM,
+      headingDifference: null,
+      cameraHeading: null,
+      captureDate: null,
+      license: option.license,
+      exactViewVerified: false
+    });
     $("commonsStatus").textContent = "選択した公開写真を読み込みました。撮影方向が指定地点と一致するか確認してください。";
   } catch (error) {
     $("commonsStatus").textContent = "自動取得できませんでした。ファイルページから許諾条件を確認し、画像を手動で選択してください。";
@@ -769,7 +786,7 @@ async function searchCommonsPhotos() {
     });
     if (!response.ok) throw new Error("Wikimedia Commonsが応答しませんでした。");
     const data = await response.json();
-    const items = filterPublicDomainCommonsImages(data);
+    const items = filterPublicDomainCommonsImages(data, 8, c);
     const gallery = $("commonsResults");
     gallery.replaceChildren();
     gallery.hidden = items.length === 0;
@@ -924,7 +941,7 @@ async function findObservedScenes() {
     });
     if (!commonsRes.ok) throw new Error("公開画像データも取得できません。");
     const commonsData = await commonsRes.json();
-    const candidates = filterPublicDomainCommonsImages(commonsData, 8);
+    const candidates = filterPublicDomainCommonsImages(commonsData, 8, c);
     if (requestId !== sceneSearchSequence) return;
     for (const candidate of candidates) cardArea.append(makeSceneCard(candidate, "commons"));
     cardArea.hidden = candidates.length === 0;
@@ -1175,6 +1192,11 @@ async function downloadGenerated() {
     ctx.textAlign = "right";
     ctx.font = "13px sans-serif";
     ctx.fillText(sourceAttribution(), canvas.width - 20, canvas.height - 17);
+    if (selectedSceneEvidence?.provider === "mapillary") {
+      ctx.font = "12px sans-serif";
+      ctx.fillText("CC BY-SA 4.0 · modified · mapillary.com/app/?pKey=" + selectedSceneEvidence.id,
+        canvas.width - 20, canvas.height - 38);
+    }
     const resultBlob = await new Promise((resolve, reject) => {
       canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("画像を保存できません。")), "image/webp", 0.9);
     });
