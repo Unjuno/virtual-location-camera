@@ -8,6 +8,9 @@ import {
 import {
   commonsGeoSearchUrl, filterPublicDomainCommonsImages, isTrustedCommonsImageUrl
 } from "./commons.mjs";
+import {
+  studioSettings, subjectCssFilter, contactShadowGeometry, drawSubjectWithShadow
+} from "./compositor.mjs";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
@@ -23,6 +26,7 @@ let placement = normalizePlacement();
 let lastObjectUrl = null;
 let exposure = 1;
 let dragging = null;
+let studio = studioSettings();
 let backgroundMode = "map";
 let photoObjectUrl = null;
 let photoLoaded = false;
@@ -51,7 +55,11 @@ function setBackgroundMode(mode) {
   }
   backgroundMode = mode;
   stage.dataset.mode = mode;
-  $("locationPhoto").hidden = mode !== "photo";
+  $("locationPhoto").hidden = true;
+  $("photoCanvas").hidden = mode !== "photo";
+  for (const id of ["photoZoom", "photoFocusX", "photoFocusY"]) {
+    $(id).disabled = !photoLoaded;
+  }
   $("mapMode").classList.toggle("selected", mode === "map");
   $("photoMode").classList.toggle("selected", mode === "photo");
   $("mapMode").setAttribute("aria-pressed", String(mode === "map"));
@@ -62,6 +70,7 @@ function setBackgroundMode(mode) {
   $("sceneLabel").textContent = "SYNTHETIC COMPOSITE · NOT AN ON-SITE PHOTOGRAPH";
   $("mapState").textContent = mode === "photo" ? "実景写真モード / 合成撮影" : (mapLoaded ? "3D地図" : "地図に接続中");
   updateCaptureAvailability();
+  if (mode === "photo") renderPhotoPreview();
 }
 
 function renderSceneBackground(ctx, width, height) {
@@ -71,7 +80,10 @@ function renderSceneBackground(ctx, width, height) {
   ctx.filter = "brightness(" + exposure + ") saturate(1.1)";
   if (photoActive()) {
     const img = $("locationPhoto");
-    const r = coverSourceRect(img.naturalWidth, img.naturalHeight, width, height);
+    const r = coverSourceRect(
+      img.naturalWidth, img.naturalHeight, width, height,
+      studio.photoFocusX, studio.photoFocusY, studio.photoZoom
+    );
     ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, width, height);
   } else {
     if (!map || !mapLoaded) throw new Error("地図がまだ読み込まれていません。");
@@ -87,6 +99,18 @@ function renderSceneBackground(ctx, width, height) {
     ctx.fillRect(0, 0, width, height);
   }
 }
+function renderPhotoPreview() {
+  if (!photoActive()) return;
+  const canvas = $("photoCanvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) {
+    notice("現地写真のプレビューCanvasを利用できません。", true);
+    return;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  renderSceneBackground(ctx, canvas.width, canvas.height);
+}
+
 function sourceAttribution() {
   return photoActive()
     ? "Background: " + (String($("photoCredit").value || "").trim().replace(/[\r\n]/g, " ").slice(0, 70) || "user-supplied licensed photograph")
@@ -116,11 +140,42 @@ function setPosition() {
   actor.style.width = (placement.widthRatio * 100) + "%";
   $("subjectScale").value = String(Math.round(placement.widthRatio * 100));
   $("scaleValue").textContent = Math.round(placement.widthRatio * 100) + "%";
+  updateSubjectAppearance();
 }
+
+function updateSubjectAppearance() {
+  actor.style.setProperty("--subject-filter", subjectCssFilter(studio));
+  const overlay = $("contactShadow");
+  if (!actorImg.complete || !(actorImg.naturalWidth > 0) || !(actorImg.naturalHeight > 0) || !studio.contactShadow) {
+    overlay.hidden = true;
+    return;
+  }
+  const g = contactShadowGeometry(
+    actorImg.naturalWidth, actorImg.naturalHeight, placement,
+    CAPTURE.width, CAPTURE.height, studio
+  );
+  overlay.hidden = false;
+  overlay.style.left = (g.centerX / CAPTURE.width * 100) + "%";
+  overlay.style.top = (g.centerY / CAPTURE.height * 100) + "%";
+  overlay.style.width = (g.radiusX * 2 / CAPTURE.width * 100) + "%";
+  overlay.style.height = (g.radiusY * 2 / CAPTURE.height * 100) + "%";
+  overlay.style.filter = "blur(" + (g.blur / CAPTURE.width * stage.clientWidth).toFixed(1) + "px)";
+  overlay.style.background = "rgba(4,8,18," + g.opacity.toFixed(3) + ")";
+}
+
+function updateStudioControl(id, key, divisor, outputSuffix) {
+  const value = Number($(id).value);
+  studio = studioSettings({ ...studio, [key]: value / divisor });
+  $(id + "Value").textContent = outputSuffix(value);
+  if (id === "photoZoom" || id === "photoFocusX" || id === "photoFocusY") renderPhotoPreview();
+  updateSubjectAppearance();
+}
+
 function setExposure(value) {
   exposure = Math.min(1.4, Math.max(0.5, Number(value) / 100));
   stage.style.setProperty("--scene-brightness", String(exposure));
   $("exposureValue").textContent = Math.round(exposure * 100) + "%";
+  renderPhotoPreview();
 }
 
 // These sample SVGs are intentionally illustrations, not photographic assets.
@@ -176,11 +231,13 @@ function updateSampleButtons(active) {
 function setSubject(source, kind) {
   actorImg.onload = () => {
     actor.hidden = false;
+    updateSubjectAppearance();
     updateCaptureAvailability();
     notice("被写体を読み込みました。ドラッグで配置できます。");
   };
   actorImg.onerror = () => {
     actor.hidden = true;
+    $("contactShadow").hidden = true;
     updateCaptureAvailability();
     notice("画像を読み込めませんでした。別のPNG/JPEG/WebPを選んでください。", true);
   };
