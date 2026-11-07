@@ -138,6 +138,18 @@ python -m compileall -q server tests/test_local_ai.py
 python -m unittest discover -s tests -p 'test_local_ai.py' -v
 \`\`\`
 
+### 実ブラウザE2Eテスト
+
+Chromiumを使用し、外部地図CDNを遮断した状態で「現地写真の読み込み → 透明な被写体の読み込み → 背景トリミング・被写体光量・接地影の変更 → 1600×900 PNG保存」を確認するテストを追加しています。
+
+\`\`\`bash
+python -m pip install 'playwright==1.57.0'
+python -m playwright install chromium
+python -m unittest discover -s tests -p 'test_browser_e2e.py' -v
+\`\`\`
+
+GitHub ActionsではNodeの静的/スモーク検証とPythonリクエスト検証に加え、Playwright/Chromiumの実ブラウザテストを別ジョブで実行する設定です。**このチャット環境からのGitHub Actions実行結果および実際のChromeによるPNG出力結果はまだ確認していません。** E2Eテストの存在をテスト成功と誤認しないでください。
+
 GitHub Actionsで、座標境界、Google Maps URL解析と悪意あるホストの除外、WikimediaのCC0/PDメタデータとHTTPSホスト検証、現地写真のアスペクト比・クロップ計算、ライセンス確認、地図未接続でも写真からPNGを書き出す操作（Canvasモック）、画像バリデーション、UIイベント、公開版の有料API無効化、ローカルサーバーのリクエスト検証・同一オリジン制限を確認します。
 
 **未検証の事項**：実GPUでのモデル重みのダウンロード/推論、OS/ドライバ別動作、WebGL2のライブ地図描画、実ブラウザでのPNGダウンロードと保存画像の肉眼評価、地理的精度、実写への類似性。上記のユニットテストが通過しても、これらの品質は保証されません。
