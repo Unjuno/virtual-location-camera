@@ -39,10 +39,31 @@ function createUI() {
       getBoundingClientRect() { return { left: 0, top: 0, width: 1000, height: 562.5 }; }
     };
   }
+  const captured = { drawCalls: [], labels: [], downloads: [] };
+  elements.__capture = captured;
+  const fakeCtx = {
+    filter: "none", fillStyle: "",
+    save() {}, restore() {}, fillRect() {},
+    createLinearGradient() { return { addColorStop() {} }; },
+    drawImage(...args) { captured.drawCalls.push(args); },
+    fillText(text) { captured.labels.push(text); }
+  };
   const document = {
     activeElement: { tagName: "BODY" },
+    body: { appendChild() {} },
     getElementById(id) { return elements[id]; },
-    addEventListener() {}
+    addEventListener() {},
+    createElement(tag) {
+      if (tag === "canvas") {
+        return { width: 0, height: 0, getContext() { return fakeCtx; },
+          toBlob(callback) { callback(new Blob(["mock-png"], { type: "image/png" })); } };
+      }
+      if (tag === "a") return {
+        href: "", download: "",
+        click() { captured.downloads.push(this.download); }, remove() {}
+      };
+      throw new Error("Unexpected DOM element: " + tag);
+    }
   };
   const window = { addEventListener() {} };
   const URL = { createObjectURL() { return "blob:mock"; }, revokeObjectURL() {} };
@@ -125,4 +146,24 @@ test("unlicensed photo cannot be used as a background", () => {
   });
   assert.equal(e.stage.dataset.mode, undefined);
   assert.match(e.message.textContent, /権利/);
+});
+
+
+test("real-photo composite shutter exports even with MapLibre completely unavailable", async () => {
+  const e = createUI();
+  e.subjectImage.onload();
+  e.photoRights.checked = true;
+  e.photoCredit.value = "Photo by Owner";
+  e.photoUpload.events.change({
+    target: { files: [{ type: "image/jpeg", size: 12345, name: "nyc-licensed.jpg" }], value: "" }
+  });
+  e.locationPhoto.onload();
+  assert.equal(e.shutter.disabled, false);
+  await e.shutter.events.click();
+  assert.equal(e.__capture.downloads.length, 1);
+  assert.match(e.__capture.downloads[0], /^virtual-location-camera-.*\.png$/);
+  assert.equal(e.__capture.drawCalls[0][0], e.locationPhoto);
+  assert.equal(e.__capture.drawCalls[1][0], e.subjectImage);
+  assert.ok(e.__capture.labels.some(text => text.includes("Photo by Owner")));
+  assert.match(e.message.textContent, /合成写真を保存/);
 });
