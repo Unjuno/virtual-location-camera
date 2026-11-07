@@ -35,6 +35,7 @@ ALLOWED_PATHS = {
     "/src/app.mjs": ROOT / "src" / "app.mjs",
     "/src/location.mjs": ROOT / "src" / "location.mjs",
     "/src/commons.mjs": ROOT / "src" / "commons.mjs",
+    "/src/compositor.mjs": ROOT / "src" / "compositor.mjs",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                  ".css": "text/css; charset=utf-8",
