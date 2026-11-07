@@ -368,66 +368,59 @@ function dateStamp() {
 async function takePhoto() {
   const btn = $("shutter");
   btn.disabled = true;
-  notice("地図タイルの描画を確認し、写真を合成しています…");
+  notice("撮影データを合成しています…");
   try {
-    await waitForMapIdle();
-    if (!actorImg.complete || actorImg.naturalWidth <= 0) {
-      throw new Error("被写体画像の読み込みが完了していません。");
-    }
+    if (!photoActive()) await waitForMapIdle();
+    if (!canCapture()) throw new Error("背景と被写体の準備が完了していません。");
     const output = document.createElement("canvas");
     output.width = CAPTURE.width;
     output.height = CAPTURE.height;
     const ctx = output.getContext("2d", { alpha: false });
     if (!ctx) throw new Error("Canvas 2Dを初期化できません。");
 
-    // Map source tiles must have CORS permissions for the canvas to remain exportable.
-    ctx.filter = "brightness(" + exposure + ") saturate(1.1)";
-    ctx.drawImage(map.getCanvas(), 0, 0, CAPTURE.width, CAPTURE.height);
-    ctx.filter = "none";
-
-    // Approximate grading mirrors the preview's night-treatment overlay.
-    const grade = ctx.createLinearGradient(0, 0, 0, CAPTURE.height);
-    grade.addColorStop(0, "rgba(4,9,29,.16)");
-    grade.addColorStop(0.6, "rgba(4,9,29,.02)");
-    grade.addColorStop(1, "rgba(10,8,25,.10)");
-    ctx.fillStyle = grade;
-    ctx.fillRect(0, 0, CAPTURE.width, CAPTURE.height);
+    renderSceneBackground(ctx, CAPTURE.width, CAPTURE.height);
 
     const rect = photoRect(actorImg.naturalWidth, actorImg.naturalHeight, placement);
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,.55)";
-    ctx.shadowBlur = 18;
-    ctx.shadowOffsetY = 14;
+    ctx.shadowColor = "rgba(0,0,0,.38)";
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 11;
     ctx.drawImage(actorImg, rect.x, rect.y, rect.width, rect.height);
     ctx.restore();
 
-    // Credits are drawn INSIDE the actual exported bitmap, not only in the UI.
-    ctx.fillStyle = "rgba(8,15,27,.78)";
-    ctx.fillRect(0, CAPTURE.height - 47, CAPTURE.width, 47);
+    // Explicit synthetic disclosure and correct per-source attribution in pixels.
+    ctx.fillStyle = "rgba(8,15,27,.85)";
+    ctx.fillRect(0, CAPTURE.height - 52, CAPTURE.width, 52);
     ctx.fillStyle = "#f5f7fb";
-    ctx.font = "600 16px system-ui, sans-serif";
-    ctx.fillText("VIRTUAL LOCATION CAMERA · SYNTHETIC COMPOSITE", 24, CAPTURE.height - 17);
+    ctx.font = "600 16px system-ui,sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("VIRTUAL LOCATION CAMERA · SYNTHETIC COMPOSITE", 24, CAPTURE.height - 18);
     ctx.textAlign = "right";
-    ctx.font = "14px system-ui, sans-serif";
-    ctx.fillText("Map © OpenFreeMap / OpenMapTiles / OpenStreetMap contributors", CAPTURE.width - 24, CAPTURE.height - 17);
+    ctx.font = "14px system-ui,sans-serif";
+    ctx.fillText(sourceAttribution(), CAPTURE.width - 24, CAPTURE.height - 18);
 
     const blob = await new Promise((resolve, reject) => {
       try { output.toBlob(value => value ? resolve(value) : reject(new Error("PNG出力に失敗しました。")), "image/png"); }
       catch (error) { reject(error); }
     });
     downloadBlob(blob, "virtual-location-camera-" + dateStamp() + ".png");
-    notice("1600 × 900 PNGを保存しました。実地撮影の写真ではなく合成画像です。");
+    notice("1600×900の合成写真を保存しました。現地撮影の証明画像ではありません。");
   } catch (error) {
-    console.error(error);
+    console.error("capture error", error);
     notice("撮影できませんでした：" + (error.message || String(error)), true);
   } finally {
-    btn.disabled = !mapIdle || !mapLoaded;
+    updateCaptureAvailability();
   }
 }
 
 function exportScene() {
   try {
     const snapshot = sceneSnapshot(currentCamera(), placement, subjectType);
+    snapshot.background = {
+      mode: photoActive() ? "user-photo" : "map",
+      imageIncluded: false,
+      locationVerified: false
+    };
     const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
     downloadBlob(blob, "virtual-location-scene-" + dateStamp() + ".json");
     notice("撮影条件をJSONで保存しました。アップロード画像本体は含まれません。");
@@ -468,7 +461,13 @@ async function importScene(event) {
       $("aiSubjectKind").value = scene.subject.type;
     }
     moveCamera();
-    notice("撮影条件を復元しました。アップロード画像本体は含まれないため、必要なら再指定してください。");
+    if (scene.background?.mode === "user-photo") {
+      if (photoLoaded) setBackgroundMode("photo");
+      else notice("撮影条件を復元しました。背景写真はJSONに含まれないため、再度アップロードしてください。", true);
+    } else {
+      setBackgroundMode("map");
+      notice("撮影条件を復元しました。元画像ファイルはJSONに含まれません。");
+    }
   } catch (error) {
     notice("撮影条件を読み込めません：" + error.message, true);
   } finally {
@@ -560,25 +559,19 @@ initializeUI();
 // 05 / Generative photography. The scene and upload images are processed in
 // memory. Local AI generation uses Hugging Face weights on the user's GPU.
 let aiReady = false;
-let referenceFile = null;
+// Reference image is the currently selected locally supplied photo background.
 let generatedPhoto = null;
 
 function backgroundCanvasForAI() {
-  if (!map || !mapLoaded || !mapIdle) throw new Error("3D地図がまだ撮影可能ではありません。");
-  if (!actorImg.complete || !actorImg.naturalWidth) throw new Error("被写体の読み込みが完了していません。");
+  if (!photoActive() && (!map || !mapLoaded || !mapIdle)) {
+    throw new Error("地図の読み込みが完了していません。現地写真を背景にすると地図接続なしでも生成できます。");
+  }
   const canvas = document.createElement("canvas");
   canvas.width = 1280;
   canvas.height = 720;
-  const context = canvas.getContext("2d", { alpha: false });
-  if (!context) throw new Error("画像合成Canvasを初期化できません。");
-  context.filter = "brightness(" + exposure + ") saturate(1.1)";
-  context.drawImage(map.getCanvas(), 0, 0, 1280, 720);
-  context.filter = "none";
-  const gradient = context.createLinearGradient(0, 0, 0, 720);
-  gradient.addColorStop(0, "rgba(4,9,29,.16)");
-  gradient.addColorStop(1, "rgba(10,8,25,.10)");
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 1280, 720);
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) throw new Error("Canvas 2Dを初期化できません。");
+  renderSceneBackground(ctx, canvas.width, canvas.height);
   return canvas;
 }
 
@@ -630,12 +623,13 @@ async function generateAIPhoto() {
   button.textContent = "AIで写真を生成中…";
   updateAIStatus("ローカルGPUで推論しています。初回はモデルのダウンロードが必要です。");
   try {
-    await waitForMapIdle();
+    if (!photoActive()) await waitForMapIdle();
+    if (!canCapture()) throw new Error("画像と被写体の準備が完了していません。");
     const background = backgroundCanvasForAI().toDataURL("image/jpeg", 0.78);
     const subject = scaledImageData(actorImg, 800, "image/png", 1);
-    const reference = referenceFile
-      ? scaledImageData(await blobImage(referenceFile), 1280, "image/jpeg", 0.76)
-      : null;
+    // For photo mode the licensed photograph is already the background;
+    // do not double-send it or silently use unrelated Google content.
+    const reference = null;
     const c = currentCamera();
     const response = await fetch("./api/render", {
       method: "POST",
@@ -691,7 +685,7 @@ async function downloadGenerated() {
     ctx.fillText("AI GENERATED · NOT ON LOCATION", 20, canvas.height - 17);
     ctx.textAlign = "right";
     ctx.font = "13px sans-serif";
-    ctx.fillText("Scene © OpenFreeMap / OpenMapTiles / OpenStreetMap contributors", canvas.width - 20, canvas.height - 17);
+    ctx.fillText(sourceAttribution(), canvas.width - 20, canvas.height - 17);
     const resultBlob = await new Promise((resolve, reject) => {
       canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("画像を保存できません。")), "image/webp", 0.9);
     });
