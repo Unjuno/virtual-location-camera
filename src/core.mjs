@@ -41,7 +41,7 @@ export function parseLocation(latitude, longitude) {
 export function normalizePlacement(candidate = {}) {
   return {
     x: clamp(Number.isFinite(candidate.x) ? candidate.x : 0.52, 0.02, 0.98),
-    y: clamp(Number.isFinite(candidate.y) ? candidate.y : 0.65, 0.05, 0.95),
+    y: clamp(Number.isFinite(candidate.y) ? candidate.y : 0.55, 0.05, 0.95),
     widthRatio: clamp(Number.isFinite(candidate.widthRatio) ? candidate.widthRatio : 0.21, 0.06, 0.85)
   };
 }
