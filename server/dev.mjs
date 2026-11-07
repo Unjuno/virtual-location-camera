@@ -7,7 +7,7 @@ import health from '../api/health.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 8000);
-const allowed = new Set(['/', '/index.html', '/styles.css', '/src/app.mjs', '/src/core.mjs', '/favicon.ico']);
+const allowed = new Set(['/', '/index.html', '/styles.css', '/src/app.mjs', '/src/core.mjs', '/src/location.mjs', '/src/commons.mjs', '/favicon.ico']);
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8' };
 
 // Simple local .env loader, without any dependencies. Production uses runtime env vars.
@@ -37,7 +37,7 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': mime[extname(file)] || 'application/octet-stream',
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' https://unpkg.com blob:; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://unpkg.com https://tiles.openfreemap.org https://*.openfreemap.org; worker-src blob:; font-src 'self' data: https:"
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' https://unpkg.com blob:; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://unpkg.com https://tiles.openfreemap.org https://*.openfreemap.org https://commons.wikimedia.org https://upload.wikimedia.org; worker-src blob:; font-src 'self' data: https:"
     });
     if (req.method === 'HEAD') return res.end();
     res.end(body);
