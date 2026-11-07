@@ -220,6 +220,82 @@ class BrowserPhotoE2ETest(unittest.TestCase):
         finally:
             context.close()
 
+    def test_keyless_panoramax_scene_selection_and_png(self):
+        """Public Panoramax API shape is exercised with licensed mock imagery.
+
+        No Mapillary token, external Google image or paid image model is used.
+        """
+        context=self.browser.new_context(
+            accept_downloads=True,viewport={"width":1500,"height":1050}
+        )
+        page=context.new_page()
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            fixture=page.evaluate("""() => {
+              const canvas=document.createElement('canvas');
+              canvas.width=800;canvas.height=450;
+              const c=canvas.getContext('2d');
+              c.fillStyle='#303f52';c.fillRect(0,0,800,450);
+              c.fillStyle='#a4c3c0';c.fillRect(190,75,270,340);
+              return canvas.toDataURL('image/png');
+            }""")
+            png=base64.b64decode(fixture.split(",",1)[1])
+            uid="af0c80eb-5ce4-424d-9ac3-6accccbe68d4"
+            candidate={
+              "provider":"panoramax","id":uid,
+              "lat":48.859870109,"lon":2.29472254,
+              "distanceM":15,"cameraHeading":45.32,
+              "headingDifference":5,"captureDate":"2025-07-21",
+              "creator":"Paris contributor","imageType":"perspective",
+              "assessment":"near-position-and-heading",
+              "imageUrl":"/api/panoramax-image?id="+uid+"&size=thumb",
+              "downloadUrl":"/api/panoramax-image?id="+uid+"&size=sd",
+              "viewerUrl":"https://api.panoramax.xyz/#focus=pic&pic="+uid,
+              "attribution":"Panoramax · Paris contributor · Etalab Open Licence 2.0",
+              "license":"Etalab Open Licence 2.0",
+              "licenseSpdx":"etalab-2.0",
+              "licenseUrl":"https://www.data.gouv.fr/pages/legal/licences/etalab-2-0",
+              "requiresShareAlike":False,
+              "exactViewVerified":False
+            }
+            page.route("**/api/scenes?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"source":"mapillary","configured":False,"candidates":[]})
+            ))
+            page.route("**/api/panoramax-scenes?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"source":"panoramax","configured":True,"candidates":[candidate]})
+            ))
+            page.route("**/api/panoramax-image?**",lambda route:route.fulfill(
+              status=200,headers={"content-type":"image/png"},body=png
+            ))
+            page.locator("#findScenes").click()
+            page.wait_for_function("document.querySelector('#sceneResults').children.length===1")
+            self.assertIn("Etalab",page.locator("#sceneResults .scene-card .meta").inner_text())
+            page.locator("#photoRights").check()
+            self.assertFalse(page.locator("#mapillaryShareAlike").is_checked())
+            page.locator("#sceneResults .scene-card button").click()
+            page.wait_for_function("document.querySelector('#stage').dataset.mode==='photo'")
+            self.assertFalse(page.locator("#shutter").is_disabled())
+            self.assertIn("Panoramax",page.locator("#photoCredit").input_value())
+            with page.expect_download(timeout=15000) as dl:
+                page.locator("#shutter").click()
+            self.assertTrue(dl.value.suggested_filename.endswith(".png"))
+            with page.expect_download(timeout=15000) as saved:
+                page.locator("#sceneExport").click()
+            with tempfile.TemporaryDirectory() as directory:
+                target=Path(directory)/"scene.json"
+                saved.value.save_as(target)
+                data=json.loads(target.read_text(encoding="utf-8"))
+                provenance=data["background"]["evidence"]
+                self.assertEqual(provenance["provider"],"panoramax")
+                self.assertEqual(provenance["licenseSpdx"],"etalab-2.0")
+                self.assertFalse(provenance["exactViewVerified"])
+        finally:
+            context.close()
+
+
     def test_live_geospatial_map_initialization(self):
         """Network test: verify real CDN + OpenFreeMap style and 3D map startup.
 
