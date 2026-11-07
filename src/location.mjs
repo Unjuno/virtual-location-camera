@@ -61,16 +61,30 @@ export function googleMapsStreetViewUrl(lat, lon) {
 }
 
 /** Center-crop source bounds to fill a target box (as with object-fit: cover). */
-export function coverSourceRect(imageWidth, imageHeight, targetWidth, targetHeight) {
+/**
+ * Center/cursor-aware object-fit: cover crop.
+ *
+ * photoZoom >= 1 denotes how much tighter than the minimum cover crop to draw.
+ * photoFocusX/Y (0..1) choose a point within the available cropping interval.
+ * For zoom=1 and focus=(0.5,0.5), output equals CSS object-fit: cover.
+ */
+export function coverSourceRect(imageWidth, imageHeight, targetWidth, targetHeight, focusX = 0.5, focusY = 0.5, photoZoom = 1) {
   if (![imageWidth, imageHeight, targetWidth, targetHeight].every(v => Number.isFinite(v) && v > 0)) {
     throw new RangeError("画像と出力の縦横寸法は正の有限数で指定してください。");
   }
+  if (![focusX, focusY, photoZoom].every(Number.isFinite) || focusX < 0 || focusX > 1 || focusY < 0 || focusY > 1 || photoZoom < 1 || photoZoom > 2.5) {
+    throw new RangeError("背景の位置は0～1、拡大率は1～2.5で指定してください。");
+  }
   const sourceAspect = imageWidth / imageHeight;
   const targetAspect = targetWidth / targetHeight;
-  if (sourceAspect > targetAspect) {
-    const cropWidth = imageHeight * targetAspect;
-    return { sx: (imageWidth - cropWidth) / 2, sy: 0, sw: cropWidth, sh: imageHeight };
-  }
-  const cropHeight = imageWidth / targetAspect;
-  return { sx: 0, sy: (imageHeight - cropHeight) / 2, sw: imageWidth, sh: cropHeight };
+  const baseW = sourceAspect > targetAspect ? imageHeight * targetAspect : imageWidth;
+  const baseH = sourceAspect > targetAspect ? imageHeight : imageWidth / targetAspect;
+  const cropW = baseW / photoZoom;
+  const cropH = baseH / photoZoom;
+  return {
+    sx: (imageWidth - cropW) * focusX,
+    sy: (imageHeight - cropH) * focusY,
+    sw: cropW,
+    sh: cropH
+  };
 }
