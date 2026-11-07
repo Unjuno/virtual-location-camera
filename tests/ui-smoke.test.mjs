@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as core from "../src/core.mjs";
 import * as location from "../src/location.mjs";
+import * as commons from "../src/commons.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
@@ -70,11 +71,12 @@ function createUI() {
   const withoutImport = source
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/core\.mjs["'];/, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/location\.mjs["'];/m, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/commons\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = [...Object.keys(core), ...Object.keys(location)];
+  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons)];
   const app = new Function("document", "window", "URL", "console", ...params, withoutImport);
-  app(document, window, URL, { warn() {}, error() {} }, ...Object.values(core), ...Object.values(location));
+  app(document, window, URL, { warn() {}, error() {} }, ...Object.values(core), ...Object.values(location), ...Object.values(commons));
   return elements;
 }
 
