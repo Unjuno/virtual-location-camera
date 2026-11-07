@@ -2,6 +2,9 @@ import {
   PRESETS, CAPTURE, parseLocation, normalizePlacement, photoRect,
   isSupportedImage, sceneSnapshot
 } from "./core.mjs";
+import {
+  parseGoogleMapsLocation, googleMapsPlaceUrl, googleMapsStreetViewUrl, coverSourceRect
+} from "./location.mjs";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
@@ -17,6 +20,75 @@ let placement = normalizePlacement();
 let lastObjectUrl = null;
 let exposure = 1;
 let dragging = null;
+let backgroundMode = "map";
+let photoObjectUrl = null;
+let photoLoaded = false;
+let photoFile = null;
+
+function photoActive() {
+  return backgroundMode === "photo" && photoLoaded;
+}
+function subjectReady() {
+  return Boolean(actorImg.complete && actorImg.naturalWidth > 0);
+}
+function canCapture() {
+  const backgroundReady = photoActive() ? $("photoRights").checked : mapLoaded && mapIdle;
+  return subjectReady() && backgroundReady;
+}
+function updateCaptureAvailability() {
+  $("shutter").disabled = !canCapture();
+}
+
+function setBackgroundMode(mode) {
+  if (mode !== "map" && mode !== "photo") throw new Error("不明な撮影モードです。");
+  if (mode === "photo" && !photoLoaded) {
+    notice("先に利用許諾のある現地写真を読み込んでください。", true);
+    return;
+  }
+  backgroundMode = mode;
+  stage.dataset.mode = mode;
+  $("locationPhoto").hidden = mode !== "photo";
+  $("mapMode").classList.toggle("selected", mode === "map");
+  $("photoMode").classList.toggle("selected", mode === "photo");
+  $("mapMode").setAttribute("aria-pressed", String(mode === "map"));
+  $("photoMode").setAttribute("aria-pressed", String(mode === "photo"));
+  $("viewHelp").textContent = mode === "photo"
+    ? "現地写真の上で被写体をドラッグ ／ 地図で地点を変更しても背景写真は自動更新されません"
+    : "被写体をドラッグして配置 ／ 背景をドラッグして視点変更";
+  $("sceneLabel").textContent = "SYNTHETIC COMPOSITE · NOT AN ON-SITE PHOTOGRAPH";
+  $("mapState").textContent = mode === "photo" ? "実景写真モード / 合成撮影" : (mapLoaded ? "3D地図" : "地図に接続中");
+  updateCaptureAvailability();
+}
+
+function renderSceneBackground(ctx, width, height) {
+  // This draw operation owns the background pixels. A licensed photograph is
+  // never loaded from Google Maps URLs, only from a user-selected local file.
+  ctx.save();
+  ctx.filter = "brightness(" + exposure + ") saturate(1.1)";
+  if (photoActive()) {
+    const img = $("locationPhoto");
+    const r = coverSourceRect(img.naturalWidth, img.naturalHeight, width, height);
+    ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, width, height);
+  } else {
+    if (!map || !mapLoaded) throw new Error("地図がまだ読み込まれていません。");
+    ctx.drawImage(map.getCanvas(), 0, 0, width, height);
+  }
+  ctx.restore();
+  if (!photoActive()) {
+    const grade = ctx.createLinearGradient(0, 0, 0, height);
+    grade.addColorStop(0, "rgba(4,9,29,.16)");
+    grade.addColorStop(0.6, "rgba(4,9,29,.02)");
+    grade.addColorStop(1, "rgba(10,8,25,.10)");
+    ctx.fillStyle = grade;
+    ctx.fillRect(0, 0, width, height);
+  }
+}
+function sourceAttribution() {
+  return photoActive()
+    ? "Background: user-supplied licensed photograph"
+    : "Map © OpenFreeMap / OpenMapTiles / OpenStreetMap contributors";
+}
+
 
 function notice(text, error = false) {
   const el = $("message");
@@ -100,10 +172,12 @@ function updateSampleButtons(active) {
 function setSubject(source, kind) {
   actorImg.onload = () => {
     actor.hidden = false;
+    updateCaptureAvailability();
     notice("被写体を読み込みました。ドラッグで配置できます。");
   };
   actorImg.onerror = () => {
     actor.hidden = true;
+    updateCaptureAvailability();
     notice("画像を読み込めませんでした。別のPNG/JPEG/WebPを選んでください。", true);
   };
   subjectType = kind;
@@ -148,7 +222,7 @@ function moveCamera() {
     return;
   }
   if (!map) {
-    notice("座標を設定しました。3D地図の接続後に反映されます。");
+    notice("撮影座標を設定しました。地図がつながると反映されます。現地写真の撮影地点は自動では照合しません。");
     return;
   }
   map.flyTo({
@@ -159,7 +233,7 @@ function moveCamera() {
     duration: 1000,
     essential: true
   });
-  notice("指定した緯度・経度へ移動します。");
+  notice("座標を変更しました。現地写真を使う場合は、その写真の場所との一致を確認してください。");
 }
 function syncCameraFromMap() {
   if (!map) return;
@@ -225,7 +299,7 @@ async function connectWorld() {
       attributionControl: true
     });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-    map.on("movestart", () => { mapIdle = false; $("shutter").disabled = true; });
+    map.on("movestart", () => { mapIdle = false; updateCaptureAvailability(); });
     map.on("moveend", syncCameraFromMap);
     map.on("error", ev => {
       const detail = ev?.error?.message || "地図タイルの取得に失敗しました。";
@@ -242,7 +316,7 @@ async function connectWorld() {
     map.on("idle", () => {
       mapIdle = true;
       if (mapLoaded) {
-        $("shutter").disabled = false;
+        updateCaptureAvailability();
         setMapStatus("撮影可能 / 3D MAP");
         notice("実際の位置データを表示しています。被写体を配置して撮影できます。");
       }
