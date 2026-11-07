@@ -271,7 +271,7 @@ class BrowserPhotoE2ETest(unittest.TestCase):
               status=200,headers={"content-type":"image/png"},body=png
             ))
             page.locator("#findScenes").click()
-            page.wait_for_function("document.querySelector('#sceneResults').children.length===1")
+            page.wait_for_function("() => document.querySelector('#sceneResults').children.length === 1")
             self.assertIn("Etalab",page.locator("#sceneResults .scene-card .meta").inner_text())
             page.locator("#photoRights").check()
             self.assertFalse(page.locator("#mapillaryShareAlike").is_checked())
