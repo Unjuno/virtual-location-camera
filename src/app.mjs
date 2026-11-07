@@ -85,7 +85,7 @@ function renderSceneBackground(ctx, width, height) {
 }
 function sourceAttribution() {
   return photoActive()
-    ? "Background: user-supplied licensed photograph"
+    ? "Background: " + (String($("photoCredit").value || "").trim().replace(/[\r\n]/g, " ").slice(0, 70) || "user-supplied licensed photograph")
     : "Map © OpenFreeMap / OpenMapTiles / OpenStreetMap contributors";
 }
 
@@ -311,14 +311,16 @@ async function connectWorld() {
       try { add3DBuildings(); }
       catch (error) { notice("3D建物の取得に失敗しました。地図の表示は続行できます。", true); console.warn(error); }
       $("loadingOverlay").hidden = true;
-      setMapStatus("地図に接続しました");
+      if (backgroundMode === "map") setMapStatus("地図に接続しました");
     });
     map.on("idle", () => {
       mapIdle = true;
       if (mapLoaded) {
         updateCaptureAvailability();
-        setMapStatus("撮影可能 / 3D MAP");
-        notice("実際の位置データを表示しています。被写体を配置して撮影できます。");
+        if (backgroundMode === "map") {
+          setMapStatus("撮影可能 / 3D MAP");
+          notice("位置データを表示しました。背景は3D地図であり実写写真ではありません。");
+        }
       }
     });
   } catch (error) {
@@ -475,9 +477,104 @@ async function importScene(event) {
   }
 }
 
+
+function openGoogleMapsView(mode = "map") {
+  try {
+    const point = cameraInputs();
+    const target = mode === "street"
+      ? googleMapsStreetViewUrl(point.lat, point.lon)
+      : googleMapsPlaceUrl(point.lat, point.lon);
+    const opened = window.open(target, "_blank", "noopener,noreferrer");
+    // Some browsers return null for noopener windows even when opening works.
+    if (opened === null) notice("Google Mapsを別タブで開きます。ブラウザでポップアップを許可してください。");
+  } catch (error) { notice("Google Mapsを開けません：" + error.message, true); }
+}
+
+function importGoogleLocation() {
+  try {
+    const result = parseGoogleMapsLocation($("googleMapsUrl").value);
+    $("latitude").value = result.lat.toFixed(6);
+    $("longitude").value = result.lon.toFixed(6);
+    $("preset").value = "custom";
+    moveCamera();
+    const qualified = result.kind === "viewport-center"
+      ? "このURLの座標は地図の表示中心で、写真の撮影位置とは限りません。"
+      : "取り込んだ位置と背景写真が一致しているか確認してください。";
+    notice("Google MapsのURLから座標を取り込みました。" + qualified);
+  } catch (error) { notice("URLを読み込めません：" + error.message, true); }
+}
+
+function onPhotoUpload(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  if (!$("photoRights").checked) {
+    notice("現地写真を使う権利があることを確認してチェックしてください。", true);
+    return;
+  }
+  if (!isSupportedImage(file)) {
+    notice("現地写真はPNG・JPEG・WebP、15MB以下にしてください。", true);
+    return;
+  }
+  const candidate = URL.createObjectURL(file);
+  const img = $("locationPhoto");
+  img.onload = () => {
+    if (img.naturalWidth * img.naturalHeight > 35_000_000) {
+      URL.revokeObjectURL(candidate);
+      img.removeAttribute("src");
+      photoLoaded = false;
+      photoFile = null;
+      $("clearPhoto").disabled = true;
+      setBackgroundMode("map");
+      notice("背景写真は3500万画素以下にしてください。", true);
+      return;
+    }
+    if (photoObjectUrl && photoObjectUrl !== candidate) URL.revokeObjectURL(photoObjectUrl);
+    photoObjectUrl = candidate;
+    photoFile = file;
+    photoLoaded = true;
+    $("photoStatus").textContent = "背景写真：" + file.name + "。撮影地点との一致は手動で確認してください。";
+    $("clearPhoto").disabled = false;
+    setBackgroundMode("photo");
+    notice("実景写真を背景に設定しました。地図に接続できなくても合成撮影できます。");
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(candidate);
+    photoLoaded = false;
+    photoFile = null;
+    $("clearPhoto").disabled = true;
+    setBackgroundMode("map");
+    notice("写真を読み込めませんでした。別の画像を選んでください。", true);
+  };
+  img.src = candidate;
+}
+
+function clearLocationPhoto() {
+  const img = $("locationPhoto");
+  img.onload = null;
+  img.onerror = null;
+  img.removeAttribute("src");
+  if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
+  photoObjectUrl = null;
+  photoFile = null;
+  photoLoaded = false;
+  $("photoStatus").textContent = "写真は未設定です。利用権のある現地写真を選んでください。";
+  $("clearPhoto").disabled = true;
+  setBackgroundMode("map");
+  notice("現地写真を解除しました。");
+}
+
 function initializeUI() {
   $("preset").addEventListener("change", event => loadPreset(event.target.value));
   $("flyTo").addEventListener("click", () => { $("preset").value = "custom"; moveCamera(); });
+  $("importGoogleUrl").addEventListener("click", importGoogleLocation);
+  $("openGoogleMaps").addEventListener("click", () => openGoogleMapsView("map"));
+  $("openStreetView").addEventListener("click", () => openGoogleMapsView("street"));
+  $("photoUpload").addEventListener("change", onPhotoUpload);
+  $("mapMode").addEventListener("click", () => setBackgroundMode("map"));
+  $("photoMode").addEventListener("click", () => setBackgroundMode("photo"));
+  $("clearPhoto").addEventListener("click", clearLocationPhoto);
+  $("photoRights").addEventListener("change", updateCaptureAvailability);
   for (const id of ["latitude", "longitude"]) {
     $(id).addEventListener("keydown", event => {
       if (event.key === "Enter") { $("preset").value = "custom"; moveCamera(); }
@@ -547,7 +644,10 @@ function initializeUI() {
     setPosition();
     event.preventDefault();
   });
-  window.addEventListener("beforeunload", () => { if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl); });
+  window.addEventListener("beforeunload", () => {
+    if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
+    if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
+  });
   setPosition();
   setExposure(100);
   useSample("person");
@@ -697,18 +797,6 @@ async function downloadGenerated() {
 }
 
 function initializeAIUI() {
-  $("referenceUpload").addEventListener("change", event => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!isSupportedImage(file)) {
-      notice("参照写真はPNG・JPEG・WebPの15MB以内にしてください。", true);
-      event.target.value = "";
-      return;
-    }
-    referenceFile = file;
-    $("referenceStatus").textContent = "選択中：" + file.name + "（生成時のみ送信）";
-    event.target.value = "";
-  });
   $("aiRender").addEventListener("click", generateAIPhoto);
   $("aiDownload").addEventListener("click", downloadGenerated);
   $("editAgain").addEventListener("click", () => {
