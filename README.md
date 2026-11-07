@@ -15,6 +15,7 @@
 | Google Maps/Street Viewの公式リンク | 対応 | 対応 |
 | 利用許諾のある現地写真を撮影背景にする | 対応 | 対応 |
 | Wikimedia Commonsの位置付きCC0/PD写真の検索 | 対応（ネット接続時） | 対応（ネット接続時） |
+| Mapillaryの撮影位置・方向つき実景探索 | トークン設定時に対応 | 現時点では非対応 |
 | 現地写真＋人物の合成（地図通信不要） | 対応 | 対応 |
 | 明るさ・暖色補正・接地影・写真トリミング | 対応 | 対応 |
 | 人物/商品画像アップロード・配置 | 対応 | 対応 |
@@ -32,6 +33,35 @@
 - 出力：768×432 WebP。実写のような生成を試すためのMVP設定で、現地の事実を保証するものではありません。
 
 **これはゼロから学習したAIワールドモデルではありません。** 位置・地形・建物・カメラ構図は地理空間エンジン、写真風の画素生成は公開Diffusersモデル、人物・商品の保持は2Dアルファ合成が担当します。影、遮蔽、実際の夜景、建物の外観は厳密には再現されません。
+
+## 実景を位置・方向で確認する（Scene Grounding）
+
+撮影地点を指定したら「**現地の実景画像を探す**」を押します。単なる地図の3Dモデルではなく、**観測済みの写真に撮影位置・方向・時刻を紐付けます**。これは現地の実景を理解するための第一段階であり、AIが世界を完全に復元するものではありません。
+
+### Mapillary（オプション・街路画像API）
+
+[Mapillary](https://www.mapillary.com/)のAPI v4には撮影座標、計算済み方位角、撮影時刻、360°カメラ種別などがあります。位置を中心に25–200 mの範囲で画像を検索します。ブラウザ画面には候補写真ごとの「地点からの距離」「カメラ方向の差」「撮影日」「投稿者」「オリジナル画像へのリンク」を表示します。
+
+**設定手順：**
+1. Mapillary開発者コンソール（[Mapillary developer](https://www.mapillary.com/developer)）で自分のAPIトークンを取得する。公開リポジトリへ貼らない。
+2. Vercel本番で使う場合、VercelのプロジェクトEnvironment Variablesに \`MAPILLARY_ACCESS_TOKEN\` を登録して再デプロイする。ローカルNodeサーバーの場合、\`.env\`へ同名で設定する。
+3. もう一度「現地の実景画像を探す」。未設定のままでも、後述するWikimedia候補を表示します。
+
+**モデルや有料画像生成APIのトークンではありません。** Mapillaryの画像探索用のキーであり、ブラウザへ露出しません。サーバーはAPIのクエリ範囲・上限を制限し、サムネイルは同一オリジンの画像プロキシから取得します。公開サービスとして大量アクセスを許す場合は、共有レート制限・クォータ監視・配信コストの管理が別途必要です。
+
+Mapillaryの街路画像は **CC BY-SA** で提供されています。改変・再配布には原作者、原画像URL、ライセンス、改変の明示とShareAlike条件に注意が必要です。使用前に「写真の権利を確認」と「CC BY-SAの改変・共有条件を確認」の**両方**への同意を要求します。生成PNGと撮影条件JSONには元画像への帰属表示を付けますが、公開する作品の最終的なライセンス適合性は利用者が確認してください。第三者の人物や商品画像との権利関係も別途検討してください。
+
+**重要な制限：** 指定座標から50 m以内、方位差35°以内でも、それは**位置・方向が近い観測画像**というだけで、要求された仮想カメラと写真の視点や道路・看板が厳密に一致したことを意味しません。別の高さ・レンズ・季節・日時の画像が混ざる場合があります。
+
+### Wikimedia Commons（APIキー不要）
+
+Mapillaryトークンがない、または近傍写真が見つからない場合は、Wikimedia Commonsの位置情報付きCC0／パブリックドメイン画像を探します。画像自体の方位角は取得できない場合が多く、**方位の一致は不明**と表示します。撮影者・ライセンスを画像ページで必ず確認してください。両ソースに現地情報がない場合は「データ不足」と表示し、存在しない景色を事実として生成しません。
+
+**ローカルHugging Face実行版（Pythonサーバー）**は現段階でMapillaryサーバープロキシを備えていないため、Wikimedia fallbackとユーザーが提供する写真で動作します。
+
+### 見え方の限界
+
+この機能は、地理情報（座標）、写真測量/コンピュータビジョン（撮影方向・日時）、画像合成の橋渡しです。**複数画像からの3D復元、深度推定、物体遮蔽、ワールドモデルによる未観測角度の生成はまだ実装していません。** 地図と合成写真の出力成功を、実景の厳密な再現成功とは扱いません。
 
 ## 現実の場所で撮影する手順
 
@@ -179,6 +209,9 @@ Python 3.11+ 127.0.0.1:8000
 - `index.html` / `styles.css`：撮影UI
 - `src/core.mjs`：カメラ・配置計算
 - `src/location.mjs`：Google Maps地点URL解析、公式リンク、実景写真の中心クロップ計算
+- `src/scenes.mjs`：WGS84上の距離・方位差・撮影位置を付与した街路画像候補の並べ替え
+- `api/scenes.js`：Mapillaryトークンをサーバー側に保持する街路画像検索API
+- `api/scene-image.js`：許可したCDNの画像だけを扱うストリート写真プロキシ
 - `src/compositor.mjs`：明るさ・接地影の計算とCanvas合成
 - `src/commons.mjs`：GeoSearchによる位置付き公開写真検索と許諾条件による選別
 - `src/app.mjs`：WebGL地図・シーン撮影・ローカルAI接続
@@ -207,5 +240,7 @@ Python 3.11+ 127.0.0.1:8000
 - [OpenStreetMap attribution](https://www.openstreetmap.org/copyright)
 - [Google Maps URLs — official guide](https://developers.google.com/maps/documentation/urls/get-started)
 - [Google Maps Platform Terms](https://cloud.google.com/maps-platform/terms)
+- [Mapillary API overview](https://help.mapillary.com/hc/en-us/articles/360010234680-Accessing-imagery-and-data-through-the-Mapillary-API)
+- [Mapillary imagery CC BY-SA](https://help.mapillary.com/hc/en-us/articles/115001770409-CC-BY-SA-license-for-open-data)
 - [Wikimedia Commons location search](https://commons.wikimedia.org/wiki/Commons:Search_by_location)
 - [MediaWiki cross-origin API](https://www.mediawiki.org/wiki/API:Cross-site_requests)
