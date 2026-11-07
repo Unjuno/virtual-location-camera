@@ -266,6 +266,7 @@ function setSubject(source, kind) {
 function useSample(kind) {
   if (lastObjectUrl) { URL.revokeObjectURL(lastObjectUrl); lastObjectUrl = null; }
   setSubject(dataSvg(kind === "person" ? personSvg() : productSvg()), kind);
+  $("aiSubjectKind").value = kind;
 }
 
 function loadPreset(id) {
@@ -1001,8 +1002,6 @@ function initializeAIUI() {
     $("aiResult").hidden = true;
     notice("編集画面へ戻りました。");
   });
-  $("samplePerson").addEventListener("click", () => { $("aiSubjectKind").value = "person"; });
-  $("sampleProduct").addEventListener("click", () => { $("aiSubjectKind").value = "product"; });
 }
 
 initializeAIUI();
