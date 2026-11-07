@@ -72,6 +72,32 @@ def decode_image_url(value: str, name: str) -> bytes:
     return data
 
 
+
+
+def parse_compositing(value: object) -> dict:
+    """Validate client controls before any GPU work (all fields unitless)."""
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise RequestError("写真の色・影の設定が不正です。")
+    bounds = {
+        "subjectExposure": (0.5, 1.5, 1.0),
+        "subjectWarmth": (0.0, 0.3, 0.0),
+        "contactShadow": (0.0, 0.8, 0.4),
+        "shadowSoftness": (0.05, 1.0, 0.45),
+    }
+    import math
+    results = {}
+    for name, (low, high, default) in bounds.items():
+        try:
+            n = float(value.get(name, default))
+        except (TypeError, ValueError):
+            raise RequestError("写真設定 " + name + " は数値で指定してください。") from None
+        if not math.isfinite(n) or n < low or n > high:
+            raise RequestError("写真設定 " + name + " が範囲外です。")
+        results[name] = n
+    return results
+
 def parse_request(payload: object) -> dict:
     if not isinstance(payload, dict):
         raise RequestError("リクエストの形式が不正です。")
@@ -114,6 +140,7 @@ def parse_request(payload: object) -> dict:
         "reference": decode_image_url(payload["reference"], "参照画像") if payload.get("reference") else None,
         "description": description.strip(),
         "subjectType": subject_type,
+        "compositing": parse_compositing(payload.get("compositing")),
     }
 
 
@@ -188,15 +215,55 @@ def render_scene(data: dict) -> dict:
             num_inference_steps=24,
             generator=generator,
         ).images[0].convert("RGBA")
-    # Pixel-preserving subject re-compositing is deliberate: img2img by itself
-    # can alter a face, clothing, product silhouette, or label unpredictably.
+    # Preserve user image pixels instead of asking the model to regenerate
+    # the person's face or product identity. Relighting is an approximation,
+    # not a physically accurate estimate of the real street's light field.
+    from PIL import ImageDraw, ImageEnhance, ImageFilter, ImageOps
     p = data["placement"]
+    settings = data.get("compositing") or parse_compositing(None)
     width = max(1, round(p["widthRatio"] * OUTPUT_SIZE[0]))
     height = max(1, round(width * subject.height / subject.width))
     foreground = subject.resize((width, height), Image.Resampling.LANCZOS)
     x = round(p["x"] * OUTPUT_SIZE[0] - width / 2)
     y = round(p["y"] * OUTPUT_SIZE[1] - height / 2)
-    output.paste(foreground, (x, y), foreground)
+
+    if settings["subjectExposure"] != 1:
+        foreground = ImageEnhance.Brightness(foreground).enhance(settings["subjectExposure"])
+
+    warmth = settings["subjectWarmth"]
+    if warmth:
+        from PIL import Image as PilImage
+        source_alpha = foreground.getchannel("A")
+        warm_tone = ImageOps.colorize(
+            ImageOps.grayscale(foreground.convert("RGB")),
+            black=(34, 24, 24), white=(255, 228, 196)
+        )
+        toned = PilImage.blend(foreground.convert("RGB"), warm_tone, warmth)
+        toned.putalpha(source_alpha)
+        foreground = toned
+
+    shadow_opacity = settings["contactShadow"]
+    if shadow_opacity:
+        radius_x = max(3.0, width * 0.32)
+        radius_y = max(1.5, min(OUTPUT_SIZE[1] * 0.1, width * 0.14) / 2)
+        cx = x + width / 2
+        cy = y + height * 0.985
+        shadow = Image.new("RGBA", OUTPUT_SIZE, (0, 0, 0, 0))
+        drawer = ImageDraw.Draw(shadow)
+        drawer.ellipse(
+            (round(cx-radius_x), round(cy-radius_y), round(cx+radius_x), round(cy+radius_y)),
+            fill=(4, 8, 18, round(shadow_opacity * 255))
+        )
+        shadow = shadow.filter(
+            ImageFilter.GaussianBlur(radius=max(1.0, radius_y * 2 * settings["shadowSoftness"] * 0.7))
+        )
+        output = Image.alpha_composite(output, shadow)
+
+    # Pasting through a full-size transparent layer safely clips subjects
+    # whose bounding rectangle crosses an edge of the output canvas.
+    subject_layer = Image.new("RGBA", OUTPUT_SIZE, (0, 0, 0, 0))
+    subject_layer.paste(foreground, (x, y))
+    output = Image.alpha_composite(output, subject_layer)
     buf = io.BytesIO()
     output.convert("RGB").save(buf, format="WEBP", quality=90)
     encoded = base64.b64encode(buf.getvalue()).decode("ascii")
