@@ -14,6 +14,7 @@
 | Google Maps公式地点URLの座標取り込み | 対応 | 対応 |
 | Google Maps/Street Viewの公式リンク | 対応 | 対応 |
 | 利用許諾のある現地写真を撮影背景にする | 対応 | 対応 |
+| Wikimedia Commonsの位置付きCC0/PD写真の検索 | 対応（ネット接続時） | 対応（ネット接続時） |
 | 現地写真＋人物の合成（地図通信不要） | 対応 | 対応 |
 | 人物/商品画像アップロード・配置 | 対応 | 対応 |
 | PNG 1600×900 合成撮影 | 対応 | 対応 |
@@ -44,6 +45,18 @@ Google Mapsは撮影場所を調べるために使用します。**地図・ス�
 現地写真はローカルのブラウザメモリだけで処理され、公開Vercelサーバーへアップロードされません。アプリは写真が指定の位置で撮られたかを自動検証しません。人物を自由な3Dアングルで回す、背景建物による遮蔽を自動推定する、同じ位置の別アングルを完全生成する機能は未実装です。
 
 Google Mapsの公式 Maps URLs はAPIキーなしで使えますが、Google Mapsコンテンツのスクレイピング・無断の派生利用・AI学習にはGoogle Maps Platformの利用規約による制約があります。
+
+## 位置付きの公開写真を検索（任意）
+
+地点の緯度経度を指定後、「指定地点の近くの公開写真を探す」から[Wikimedia Commons](https://commons.wikimedia.org/)のGeoSearch APIで半径1kmのファイルを検索できます。APIキーは不要です。
+
+- **CC0 1.0またはPublic domainとメタデータに表示される写真だけ**を自動取り込みの候補にします。CC BY-SA等の帰属・継承条件がある画像は自動取り込み対象にしません。
+- 画像のファイル説明ページを別タブで開いて、撮影者・ライセンス・内容・人物等の権利関係を確認してください。メタデータが正しいことを保証できないため、利用権の確認チェックが必要です。
+- 写真の地理タグは**カメラ方向・撮影時刻・同じ住所の別建物を保証しません**。実際の現地視点かどうか、利用者が確認してください。
+- サービス側のCORS制約やライセンス表示によっては自動取り込みできません。その場合はファイルページを確認して、許諾された画像を手動でアップロードしてください。
+- 検索結果の写真URLはWikimedia Commons APIに基づいています。Google Mapsのスクリーンショットや画像の抽出・保存は一切していません。
+
+Wikimediaの検索APIと各画像のライセンスは別です。[Commonsの位置検索](https://commons.wikimedia.org/wiki/Commons:Search_by_location)と[Wikimediaのライセンス説明](https://attribution.wikimedia.org/attribution-signals/license.html)を参照してください。
 
 ## A. 公開Webデモ（GPU不要）
 
@@ -109,7 +122,7 @@ python -m compileall -q server tests/test_local_ai.py
 python -m unittest discover -s tests -p 'test_local_ai.py' -v
 \`\`\`
 
-GitHub Actionsで、座標境界、Google Maps URL解析と悪意あるホストの除外、現地写真のアスペクト比・クロップ計算、ライセンス確認、地図未接続でも写真からPNGを書き出す操作（Canvasモック）、画像バリデーション、UIイベント、公開版の有料API無効化、ローカルサーバーのリクエスト検証・同一オリジン制限を確認します。
+GitHub Actionsで、座標境界、Google Maps URL解析と悪意あるホストの除外、WikimediaのCC0/PDメタデータとHTTPSホスト検証、現地写真のアスペクト比・クロップ計算、ライセンス確認、地図未接続でも写真からPNGを書き出す操作（Canvasモック）、画像バリデーション、UIイベント、公開版の有料API無効化、ローカルサーバーのリクエスト検証・同一オリジン制限を確認します。
 
 **未検証の事項**：実GPUでのモデル重みのダウンロード/推論、OS/ドライバ別動作、WebGL2のライブ地図描画、実ブラウザでのPNGダウンロードと保存画像の肉眼評価、地理的精度、実写への類似性。上記のユニットテストが通過しても、これらの品質は保証されません。
 
@@ -133,6 +146,7 @@ Python 3.11+ 127.0.0.1:8000
 - \`index.html\` / \`styles.css\`：撮影UI
 - \`src/core.mjs\`：カメラ・配置計算
 - \`src/location.mjs\`：Google Maps地点URL解析、公式リンク、実景写真の中心クロップ計算
+- \`src/commons.mjs\`：GeoSearchによる位置付き公開写真検索と許諾条件による選別
 - \`src/app.mjs\`：WebGL地図・シーン撮影・ローカルAI接続
 - \`server/local_ai.py\`：ローカル推論サーバー
 - \`server/dev.mjs\`：無料デモのNode開発サーバー
@@ -159,3 +173,5 @@ Python 3.11+ 127.0.0.1:8000
 - [OpenStreetMap attribution](https://www.openstreetmap.org/copyright)
 - [Google Maps URLs — official guide](https://developers.google.com/maps/documentation/urls/get-started)
 - [Google Maps Platform Terms](https://cloud.google.com/maps-platform/terms)
+- [Wikimedia Commons location search](https://commons.wikimedia.org/wiki/Commons:Search_by_location)
+- [MediaWiki cross-origin API](https://www.mediawiki.org/wiki/API:Cross-site_requests)
