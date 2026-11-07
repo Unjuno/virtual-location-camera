@@ -19,6 +19,33 @@ export function isAllowedMapillaryImageUrl(candidate) {
   } catch { return false; }
 }
 
+async function readImageWithLimit(response) {
+  // Node fetch responses stream the body, allowing an early refusal rather
+  // than buffering an arbitrarily large third-party JPEG into memory.
+  if (response.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_BYTES) {
+          await reader.cancel();
+          throw Object.assign(new Error("画像が大きすぎます。"), { status: 413 });
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return Buffer.concat(chunks, total);
+  }
+  // A provider mock or custom fetch implementation may expose arrayBuffer.
+  return Buffer.from(await response.arrayBuffer());
+}
+
 export async function fetchMapillaryImage(id, { token, fetcher = fetch } = {}) {
   if (!/^\d{1,20}$/.test(String(id ?? ""))) {
     throw Object.assign(new Error("画像IDが不正です。"), { status: 400 });
@@ -49,7 +76,7 @@ export async function fetchMapillaryImage(id, { token, fetcher = fetch } = {}) {
     if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) {
       throw Object.assign(new Error("画像形式が非対応です。"), { status: 415 });
     }
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = await readImageWithLimit(response);
     if (bytes.length < 20 || bytes.length > MAX_BYTES) {
       throw Object.assign(new Error("画像サイズが不正です。"), { status: 413 });
     }
