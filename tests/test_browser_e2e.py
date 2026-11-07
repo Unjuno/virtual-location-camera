@@ -5,6 +5,7 @@ real-photo camera is usable even when WebGL/world tiles cannot load. It does not
 test online map rendering or local Diffusers GPU inference.
 """
 import base64
+import json
 import os
 import struct
 import subprocess
@@ -130,6 +131,94 @@ class BrowserPhotoE2ETest(unittest.TestCase):
         finally:
             context.close()
 
+
+
+    def test_street_image_selection_with_direction_and_license_gate(self):
+        """Mock the optional Mapillary provider, exercise real browser gallery,
+        scene provenance, attribution and PNG download without paid API.
+        """
+        context = self.browser.new_context(
+            accept_downloads=True, viewport={"width": 1500, "height": 1000}
+        )
+        page = context.new_page()
+        try:
+            page.route("https://**/*", lambda route: route.abort())
+            page.goto(BASE_URL + "/", wait_until="domcontentloaded")
+            fixture = page.evaluate("""() => {
+                const c=document.createElement('canvas');
+                c.width=800; c.height=450;
+                const ctx=c.getContext('2d');
+                ctx.fillStyle='#3b4452';ctx.fillRect(0,0,800,450);
+                ctx.fillStyle='#d8b67a';ctx.fillRect(220,90,240,340);
+                return c.toDataURL('image/png');
+            }""")
+            binary = base64.b64decode(fixture.split(",",1)[1])
+            scene = {
+                "provider": "mapillary",
+                "id": "12345678",
+                "lat": 40.758, "lon": -73.9855,
+                "distanceM": 15, "cameraHeading": 343,
+                "headingDifference": 2,
+                "captureDate": "2026-07-01",
+                "imageType": "perspective",
+                "creator": "Test contributor",
+                "assessment": "near-position-and-heading",
+                "imageUrl": "/api/scene-image?id=12345678",
+                "viewerUrl": "https://www.mapillary.com/app/?pKey=12345678&focus=photo",
+                "attribution": "Mapillary · Test contributor · CC BY-SA 4.0",
+                "license": "CC BY-SA 4.0"
+            }
+            page.route("**/api/scenes?**", lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"source":"mapillary","configured":True,"candidates":[scene]})
+            ))
+            page.route("**/api/scene-image?id=12345678", lambda route: route.fulfill(
+                status=200,
+                headers={"content-type":"image/png"},
+                body=binary
+            ))
+            page.locator("#findScenes").click()
+            page.wait_for_function(
+                "() => document.querySelector('#sceneResults').children.length === 1"
+            )
+            page.locator("#sceneResults .scene-card .meta").first.wait_for()
+            metadata = page.locator("#sceneResults .scene-card .meta").inner_text()
+            self.assertIn("15 m", metadata)
+            self.assertIn("方位差 2°", metadata)
+            self.assertIn("2026-07-01", metadata)
+
+            # Clicking without respecting rights/ShareAlike must fail closed.
+            page.locator("#sceneResults .scene-card button").click()
+            self.assertIn("CC BY-SA", page.locator("#message").inner_text())
+            page.locator("#photoRights").check()
+            page.locator("#mapillaryShareAlike").check()
+            page.locator("#sceneResults .scene-card button").click()
+            page.wait_for_function(
+                "() => document.querySelector('#stage').dataset.mode === 'photo'"
+            )
+            self.assertIn("CC BY-SA", page.locator("#photoCredit").input_value())
+            self.assertFalse(page.locator("#shutter").is_disabled())
+            page.locator("#mapillaryShareAlike").uncheck()
+            self.assertTrue(page.locator("#shutter").is_disabled())
+            page.locator("#mapillaryShareAlike").check()
+
+            with page.expect_download(timeout=15000) as download_info:
+                page.locator("#shutter").click()
+            data = download_info.value
+            self.assertTrue(data.suggested_filename.endswith(".png"))
+
+            with page.expect_download(timeout=15000) as scene_info:
+                page.locator("#sceneExport").click()
+            with tempfile.TemporaryDirectory() as directory:
+                dest = Path(directory) / "scene.json"
+                scene_info.value.save_as(dest)
+                metadata = json.loads(dest.read_text(encoding="utf-8"))
+                self.assertEqual(metadata["background"]["evidence"]["id"], "12345678")
+                self.assertFalse(metadata["background"]["evidence"]["exactViewVerified"])
+                self.assertEqual(metadata["background"]["evidence"]["license"], "CC BY-SA 4.0")
+        finally:
+            context.close()
 
     def test_live_geospatial_map_initialization(self):
         """Network test: verify real CDN + OpenFreeMap style and 3D map startup.
