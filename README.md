@@ -78,7 +78,7 @@ Wikimediaの検索APIと各画像のライセンスは別です。[Commonsの位
 
 https://virtual-location-camera.vercel.app
 
-WebGL2対応ブラウザとネット接続が必要です。OpenFreeMap/MapLibreを使って地理空間の3D建物を描画します。夜景はダーク地図の近似で、衛星写真ではありません。
+WebGL対応ブラウザとネット接続が必要です。OpenFreeMapとMapLibre GL JS **5.17.0**（Worker読み込み問題を避けるための固定版）を使って地理空間の3D建物を描画します。夜景はダーク地図の近似で、衛星写真ではありません。
 
 1. ニューヨーク・東京などの地点を選ぶか、Google Maps URL・緯度経度を入力。
 2. 3D地図で構図を選ぶか、**利用許諾のある現地写真**を背景にアップロード。
@@ -140,7 +140,10 @@ python -m unittest discover -s tests -p 'test_local_ai.py' -v
 
 ### 実ブラウザE2Eテスト
 
-Chromiumを使用し、外部地図CDNを遮断した状態で「現地写真の読み込み → 透明な被写体の読み込み → 背景トリミング・被写体光量・接地影の変更 → 1600×900 PNG保存」を確認するテストを追加しています。
+Chromiumを使用した2種類のE2Eテストを実行します。
+
+- **オンライン3D地図**：MapLibre/CDN/OpenFreeMapから地図を読み込み、1600×900 PNGを保存し、東京への地点変更後も撮影可能に戻ることを検証。
+- **地図通信遮断**：元の現地写真と透明被写体を読み込み、光量・影・トリミングを調整して1600×900 PNGを保存できることを検証。テスト画像はブラウザが自作する非実在の画像です。
 
 ```bash
 python -m pip install 'playwright==1.57.0'
@@ -148,11 +151,13 @@ python -m playwright install chromium
 python -m unittest discover -s tests -p 'test_browser_e2e.py' -v
 ```
 
-GitHub ActionsではNodeの静的/スモーク検証とPythonリクエスト検証に加え、Playwright/Chromiumの実ブラウザテストを別ジョブで実行する設定です。**このチャット環境からのGitHub Actions実行結果および実際のChromeによるPNG出力結果はまだ確認していません。** E2Eテストの存在をテスト成功と誤認しないでください。
+GitHub ActionsではNodeの静的/スモーク検証とPythonリクエスト検証に加え、Playwright 1.57.0 + Chromiumを**Ubuntu 24.04**で実行します。Ubuntu 26.04では当該バージョンのPlaywrightブラウザのインストールが失敗するため、OSを固定しています。
+
+**検証実績：** [PRのCI実行 #90](https://github.com/Unjuno/virtual-location-camera/actions/runs/42406333361) ではunit / browser両ジョブがPASSしました。Chromiumでオンライン3D地図・実地図PNG保存・都市間移動、および地図通信遮断下の写真合成PNG保存を検証しています。
 
 GitHub Actionsで、座標境界、Google Maps URL解析と悪意あるホストの除外、WikimediaのCC0/PDメタデータとHTTPSホスト検証、現地写真のアスペクト比・クロップ計算、ライセンス確認、地図未接続でも写真からPNGを書き出す操作（Canvasモック）、画像バリデーション、UIイベント、公開版の有料API無効化、ローカルサーバーのリクエスト検証・同一オリジン制限を確認します。
 
-**未検証の事項**：実GPUでのモデル重みのダウンロード/推論、OS/ドライバ別動作、WebGL2のライブ地図描画、実ブラウザでのPNGダウンロードと保存画像の肉眼評価、地理的精度、実写への類似性。上記のユニットテストが通過しても、これらの品質は保証されません。
+**未検証の事項**：実GPUでのモデル重みのダウンロード/推論、OS/ドライバ別動作、Chromium以外の実ブラウザ動作、保存画像の人間による画質評価、地理的精度、実写への類似性。地図と合成画像が出力できても、実際の街並みとの一致や人物の自然な照明を保証するものではありません。
 
 ## 技術構成
 
