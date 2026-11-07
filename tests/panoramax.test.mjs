@@ -39,6 +39,7 @@ test("approved Etalab photo retains position, facing direction, date and source"
   assert.equal(p.cameraHeading,45.32);
   assert.equal(p.headingDifference,5);
   assert.equal(p.captureDate,"2025-07-21");
+  assert.equal(p.lastUpdated,"2026-08-20");
   assert.equal(p.licenseSpdx,"etalab-2.0");
   assert.equal(p.requiresShareAlike,false);
   assert.equal(p.exactViewVerified,false);
