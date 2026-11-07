@@ -7,7 +7,7 @@ import health from '../api/health.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 8000);
-const allowed = new Set(['/', '/index.html', '/styles.css', '/src/app.mjs', '/src/core.mjs', '/src/location.mjs', '/src/commons.mjs', '/favicon.ico']);
+const allowed = new Set(['/', '/index.html', '/styles.css', '/src/app.mjs', '/src/core.mjs', '/src/location.mjs', '/src/commons.mjs', '/src/compositor.mjs', '/favicon.ico']);
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8' };
 
 // Simple local .env loader, without any dependencies. Production uses runtime env vars.
