@@ -60,7 +60,7 @@ test("shadow can be suppressed, and invalid image dimensions fail", () => {
     save() {}, restore() {}, drawImage() {},
     beginPath() {throw Error("Shadow should be disabled");}
   };
-  drawSubjectWithShadow(ctx,{naturalWidth:100,naturalHeight:100},{},{...{width:1600},height:900}.width,900,{contactShadow:0});
+  drawSubjectWithShadow(ctx,{naturalWidth:100,naturalHeight:100},{},1600,900,{contactShadow:0});
   assert.throws(()=>drawSubjectWithShadow(ctx,{naturalWidth:0,naturalHeight:100},{},1600,900), RangeError);
 });
 
