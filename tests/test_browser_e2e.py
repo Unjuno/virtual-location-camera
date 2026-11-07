@@ -100,10 +100,16 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             })
             page.wait_for_function("!document.querySelector('#shutter').disabled")
 
-            page.locator("#photoZoom").fill("140")
-            page.locator("#photoFocusX").fill("70")
-            page.locator("#subjectLight").fill("120")
-            page.locator("#shadowStrength").fill("60")
+            for field, value in [
+                ("photoZoom", "140"),
+                ("photoFocusX", "70"),
+                ("subjectLight", "120"),
+                ("shadowStrength", "60")
+            ]:
+                page.locator("#" + field).evaluate(
+                    "(el, value) => { el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); }",
+                    value
+                )
             self.assertEqual(page.locator("#photoZoomValue").inner_text(), "140%")
             self.assertIn("brightness(1.200)", page.locator("#subjectHandle").get_attribute("style") or "")
             self.assertTrue(page.locator("#contactShadow").is_visible())
