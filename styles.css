@@ -122,3 +122,12 @@ textarea{resize:vertical;min-height:82px}
 .stage[data-mode="photo"] .maplibregl-control-container{display:none}
 .stage[data-mode="photo"] .scene-label{background:rgba(4,10,19,.85)}
 @media(max-width:750px){.google-actions{grid-template-columns:1fr 1fr}.scene-modes button{min-height:42px}}
+
+
+/* Geotagged public-domain photograph discovery (Wikimedia Commons). */
+.commons-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0;max-height:440px;overflow-y:auto;padding:1px}
+.commons-card{min-width:0;border:1px solid #364557;border-radius:9px;background:#152132;padding:8px;display:flex;flex-direction:column;gap:6px}
+.commons-card img{width:100%;height:86px;object-fit:cover;border-radius:5px;background:#223041}
+.commons-card small{font-size:10px;color:#a8bccd;overflow-wrap:anywhere;min-height:28px;line-height:1.4}
+.commons-card a{color:#a9dbf0;font-size:10px;text-decoration:underline}
+.commons-card button{border:1px solid #7597ab;border-radius:5px;background:#274054;color:#f0fbff;min-height:30px;font-size:10px}
