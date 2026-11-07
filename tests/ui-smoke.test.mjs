@@ -5,12 +5,13 @@ import * as core from "../src/core.mjs";
 import * as location from "../src/location.mjs";
 import * as commons from "../src/commons.mjs";
 import * as compositor from "../src/compositor.mjs";
+import * as scenes from "../src/scenes.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
 const ids = Array.from(html.matchAll(/id="([^"]+)"/g), match => match[1]);
 
-function createUI() {
+function createUI(fetchOverride = null) {
   const elements = {};
   for (const id of ids) {
     const attributes = {};
@@ -31,7 +32,9 @@ function createUI() {
       disabled: false,
       textContent: "",
       src: "",
-      events: {},
+      events: {}, children: [],
+      append(...nodes) { this.children.push(...nodes); },
+      replaceChildren() { this.children = []; },
       addEventListener(name, cb) { this.events[name] = cb; },
       setAttribute(name, value) { attributes[name] = value; },
       getAttribute(name) { return attributes[name]; },
@@ -68,7 +71,13 @@ function createUI() {
         href: "", download: "",
         click() { captured.downloads.push(this.download); }, remove() {}
       };
-      throw new Error("Unexpected DOM element: " + tag);
+      return {
+        tagName: tag.toUpperCase(), events: {}, children: [],
+        classList: { add() {}, remove() {}, toggle() {} },
+        style: {}, hidden: false, disabled: false,
+        append(...nodes) { this.children.push(...nodes); },
+        addEventListener(name, cb) { this.events[name] = cb; }
+      };
     }
   };
   const window = { addEventListener() {} };
@@ -78,11 +87,19 @@ function createUI() {
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/location\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/commons\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/compositor\.mjs["'];/m, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/scenes\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor)];
-  const app = new Function("document", "window", "URL", "console", ...params, withoutImport);
-  app(document, window, URL, { warn() {}, error() {} }, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor));
+  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes)];
+  const mockFetch = fetchOverride || (async url => ({
+    ok: true,
+    json: async () => url.includes("/api/health") ? { aiConfigured: false } : { configured: false, candidates: [] }
+  }));
+  const mockFile = function(files, name, options) {
+    this.name = name; this.type = options.type; this.size = files[0].size;
+  };
+  const app = new Function("document", "window", "URL", "console", "fetch", "File", ...params, withoutImport);
+  app(document, window, URL, { warn() {}, error() {} }, mockFetch, mockFile, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor), ...Object.values(scenes));
   return elements;
 }
 
@@ -207,4 +224,67 @@ test("subject relighting and contact shadow controls update preview and export",
   assert.equal(e.contactShadow.hidden, false);
   await e.shutter.events.click();
   assert.equal(e.__capture.downloads.length, 1);
+});
+
+
+test("Mapillary candidate search shows distance, heading and date with license guard", async () => {
+  const sample = {
+    provider: "mapillary", id: "12345678",
+    lat: 40.758, lon: -73.9855, distanceM: 14,
+    cameraHeading: 341, headingDifference: 4,
+    captureDate: "2026-05-01", imageType: "perspective",
+    creator: "Example Photographer",
+    assessment: "near-position-and-heading",
+    imageUrl: "/api/scene-image?id=12345678",
+    viewerUrl: "https://www.mapillary.com/app/?pKey=12345678&focus=photo",
+    attribution: "Mapillary · Example Photographer · CC BY-SA 4.0",
+    license: "CC BY-SA 4.0"
+  };
+  const e = createUI(async url => {
+    if (url.startsWith("./api/scenes?")) return {
+      ok: true, json: async () => ({ configured: true, candidates: [sample] })
+    };
+    if (url.includes("/api/scene-image?id=")) return {
+      ok: true, blob: async () => ({ type: "image/jpeg", size: 8192 })
+    };
+    return { ok: true, json: async () => ({ aiConfigured: false }) };
+  });
+
+  await e.findScenes.events.click();
+  assert.equal(e.sceneResults.hidden, false);
+  assert.equal(e.sceneResults.children.length, 1);
+  const card = e.sceneResults.children[0];
+  assert.match(card.children[2].textContent, /14 m/);
+  assert.match(card.children[2].textContent, /方位差 4°/);
+  assert.match(card.children[2].textContent, /2026-05-01/);
+
+  await card.children[4].events.click();
+  assert.match(e.message.textContent, /CC BY-SA/);
+  e.subjectImage.onload();
+  e.photoRights.checked = true;
+  e.mapillaryShareAlike.checked = true;
+  await card.children[4].events.click();
+  e.locationPhoto.onload();
+  assert.equal(e.stage.dataset.mode, "photo");
+  assert.equal(e.sceneSelected.hidden, false);
+  assert.match(e.photoCredit.value, /CC BY-SA 4\.0/);
+  assert.equal(e.shutter.disabled, false);
+  e.mapillaryShareAlike.checked = false;
+  e.mapillaryShareAlike.events.change();
+  assert.equal(e.shutter.disabled, true, "License acknowledgement is required for Mapillary capture");
+});
+
+test("unconfigured street-image API falls back without inventing a location view", async () => {
+  const e = createUI(async url => {
+    if (url.startsWith("./api/scenes?")) return {
+      ok: true, json: async () => ({ configured: false, candidates: [] })
+    };
+    if (url.startsWith("https://commons.wikimedia.org/")) return {
+      ok: true, json: async () => ({ query: { pages: {} } })
+    };
+    return { ok: true, json: async () => ({ aiConfigured: false }) };
+  });
+  await e.findScenes.events.click();
+  assert.match(e.sceneGroundingStatus.textContent, /確認できる実景画像はありません/);
+  assert.equal(e.sceneResults.hidden, true);
 });
