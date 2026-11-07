@@ -12,6 +12,7 @@ import {
   studioSettings, subjectCssFilter, contactShadowGeometry, drawSubjectWithShadow
 } from "./compositor.mjs";
 import { normalizeHeading } from "./scenes.mjs";
+import { validPanoramaxId } from "./panoramax.mjs";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
@@ -54,7 +55,7 @@ function subjectReady() {
   return Boolean(actorImg.complete && actorImg.naturalWidth > 0);
 }
 function canCapture() {
-  const legalConfirmation = selectedSceneEvidence?.provider !== "mapillary" || $("mapillaryShareAlike").checked;
+  const legalConfirmation = !selectedSceneEvidence?.requiresShareAlike || $("mapillaryShareAlike").checked;
   const backgroundReady = photoActive()
     ? $("photoRights").checked && legalConfirmation
     : mapLoaded && mapIdle;
@@ -504,14 +505,17 @@ async function takePhoto() {
     drawSubjectWithShadow(ctx, actorImg, placement, CAPTURE.width, CAPTURE.height, studio);
 
     // Explicit synthetic disclosure and correct per-source attribution in pixels.
-    const hasMapillaryLicense = selectedSceneEvidence?.provider === "mapillary";
+    const hasStreetLicense = ["mapillary","panoramax"].includes(selectedSceneEvidence?.provider);
     ctx.fillStyle = "rgba(8,15,27,.85)";
-    ctx.fillRect(0, CAPTURE.height - (hasMapillaryLicense ? 76 : 52), CAPTURE.width, hasMapillaryLicense ? 76 : 52);
-    if (hasMapillaryLicense) {
+    ctx.fillRect(0, CAPTURE.height - (hasStreetLicense ? 76 : 52), CAPTURE.width, hasStreetLicense ? 76 : 52);
+    if (hasStreetLicense) {
       ctx.fillStyle = "#f5f7fb";
       ctx.textAlign = "right";
       ctx.font = "13px system-ui,sans-serif";
-      ctx.fillText("CC BY-SA 4.0 · modified street image · mapillary.com/app/?pKey=" + selectedSceneEvidence.id,
+      const original = selectedSceneEvidence.provider === "mapillary"
+        ? "mapillary.com/app/?pKey=" + selectedSceneEvidence.id
+        : "api.panoramax.xyz/#focus=pic&pic=" + selectedSceneEvidence.id;
+      ctx.fillText(selectedSceneEvidence.license + " · modified street image · " + original,
         CAPTURE.width - 24, CAPTURE.height - 51);
     }
     ctx.fillStyle = "#f5f7fb";
@@ -831,24 +835,26 @@ function makeSceneCard(candidate, kind) {
   if (candidate.assessment === "near-position-and-heading") card.classList.add("nearest");
   const photo = document.createElement("img");
   photo.loading = "lazy";
-  photo.src = kind === "mapillary" ? candidate.imageUrl : candidate.previewUrl;
-  photo.alt = kind === "mapillary"
-    ? "Mapillaryで観測された街路写真" : "Wikimedia Commonsの付近の公開写真";
+  const isStreet = kind === "mapillary" || kind === "panoramax";
+  photo.src = isStreet ? candidate.imageUrl : candidate.previewUrl;
+  photo.alt = isStreet
+    ? "実際に観測された位置付き街路写真" : "Wikimedia Commonsの付近の公開写真";
   const title = document.createElement("small");
   title.className = "status";
-  title.textContent = kind === "mapillary"
+  title.textContent = isStreet
     ? (candidate.assessment === "near-position-and-heading"
       ? "位置・方位が近い実景" : "付近の実景（方向は要確認）")
     : "付近の写真（方位不明）";
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = kind === "mapillary"
+  meta.textContent = isStreet
     ? [
         candidate.distanceM + " m",
         candidate.headingDifference == null ? "方位不明" : "方位差 " + candidate.headingDifference + "°",
         candidate.captureDate || "撮影日不明",
         candidate.imageType === "360" ? "360°撮影" : "通常撮影",
-        candidate.creator
+        candidate.creator,
+        candidate.license
       ].join(" / ")
     : [candidate.name, candidate.license, candidate.distanceM == null ? "場所の厳密性不明" : candidate.distanceM + " m"].join(" / ");
 
@@ -856,12 +862,12 @@ function makeSceneCard(candidate, kind) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.textContent = "元画像と利用条件を確認 ↗";
-  link.href = kind === "mapillary" ? candidate.viewerUrl : candidate.filePage;
+  link.href = isStreet ? candidate.viewerUrl : candidate.filePage;
 
   const choose = document.createElement("button");
   choose.type = "button";
   choose.textContent = "撮影背景にする";
-  choose.addEventListener("click", () => kind === "mapillary"
+  choose.addEventListener("click", () => isStreet
     ? loadObservedScene(candidate)
     : loadCommonsChoice(candidate));
   card.append(photo, title, meta, link, choose);
@@ -869,35 +875,42 @@ function makeSceneCard(candidate, kind) {
 }
 
 async function loadObservedScene(candidate) {
-  if (candidate.provider !== "mapillary" || !/^\d{1,20}$/.test(candidate.id)) {
+  const isMapillary = candidate.provider === "mapillary" && /^\d{1,20}$/.test(candidate.id);
+  const isPanoramax = candidate.provider === "panoramax" && validPanoramaxId(candidate.id);
+  if (!isMapillary && !isPanoramax) {
     notice("街路画像の識別子が不正です。", true); return;
   }
-  if (!$("photoRights").checked || !$("mapillaryShareAlike").checked) {
-    notice("Mapillaryの原画像・CC BY-SA条件を確認し、写真利用権と共有条件にチェックしてください。", true);
+  const needsShareAlike = isMapillary || candidate.requiresShareAlike === true;
+  if (!$("photoRights").checked || (needsShareAlike && !$("mapillaryShareAlike").checked)) {
+    notice("街路画像の利用権とライセンスの改変・共有条件を確認してください。CC BY-SAの場合は共有条件への同意も必要です。", true);
     return;
   }
   try {
     $("sceneGroundingStatus").textContent = "指定した街路画像を読み込んでいます…";
-    const response = await fetch(candidate.imageUrl, { credentials: "omit", cache: "no-store" });
+    const selectedImageUrl = isPanoramax ? candidate.downloadUrl : candidate.imageUrl;
+    const response = await fetch(selectedImageUrl, { credentials: "omit", cache: "no-store" });
     if (!response.ok) throw new Error("街路画像サーバーが利用できません。");
     const bytes = await response.blob();
     if (!isSupportedImage({ type: bytes.type, size: bytes.size })) {
       throw new Error("街路画像の形式またはサイズに問題があります。");
     }
     const ext = bytes.type === "image/png" ? "png" : bytes.type === "image/webp" ? "webp" : "jpg";
-    const file = new File([bytes], "mapillary-scene-" + candidate.id + "." + ext, { type: bytes.type });
+    const file = new File([bytes], candidate.provider + "-scene-" + candidate.id + "." + ext, { type: bytes.type });
     const evidence = {
-      provider: "mapillary", id: candidate.id,
+      provider: candidate.provider, id: candidate.id,
       lat: candidate.lat, lon: candidate.lon,
       distanceM: candidate.distanceM,
       cameraHeading: candidate.cameraHeading,
       headingDifference: candidate.headingDifference,
       captureDate: candidate.captureDate,
-      license: candidate.license,
+      lastUpdated: candidate.lastUpdated || null,
+      license: candidate.license, licenseSpdx: candidate.licenseSpdx || "CC-BY-SA-4.0",
+      licenseUrl: candidate.licenseUrl || "https://creativecommons.org/licenses/by-sa/4.0/",
+      requiresShareAlike: needsShareAlike,
       exactViewVerified: false
     };
     installLocationPhoto(file, candidate.attribution, candidate.viewerUrl, evidence);
-    $("sceneGroundingStatus").textContent = "街路画像を背景にしました。距離・方向は近似です。生成画像の改変にはCC BY-SAの条件が適用される場合があります。";
+    $("sceneGroundingStatus").textContent = "街路画像を背景に設定しました。撮影位置・方向は参考値です。利用条件: "+candidate.license+"。";
   } catch (error) {
     $("sceneGroundingStatus").textContent = "画像の読み込みに失敗しました。地図、Wikimedia、または手元の写真を利用してください。";
     notice("街路画像を取得できません：" + error.message, true);
@@ -935,7 +948,33 @@ async function findObservedScenes() {
       return;
     }
 
-    // Usable without Mapillary credentials: a lower-confidence Commons fallback.
+    // Keyless public street photos. Panoramax is a federated STAC catalog
+    // with per-photo licensing (Etalab 2.0 / CC BY-SA 4.0); never assume all
+    // global Panoramax imagery has the same licence.
+    try {
+      const panoRes = await fetch("./api/panoramax-scenes?" + query.toString(), {
+        credentials: "omit", cache: "no-store"
+      });
+      if (panoRes.ok) {
+        const panoData = await panoRes.json();
+        if (requestId !== sceneSearchSequence) return;
+        const panoItems = Array.isArray(panoData.candidates) ? panoData.candidates : [];
+        if (panoItems.length) {
+          for (const item of panoItems) cardArea.append(makeSceneCard(item, "panoramax"));
+          cardArea.hidden = false;
+          const oriented = panoItems.filter(x => x.assessment === "near-position-and-heading").length;
+          status.textContent = "Panoramax公開街路写真 " + panoItems.length
+            + "件（位置・方位が近い " + oriented
+            + "件）。利用条件は各写真に表示。撮影視点の完全一致は未検証です。";
+          return;
+        }
+      }
+    } catch (error) {
+      console.warn("Panoramax search unavailable", error.name);
+    }
+
+    // Lower-confidence CC0/Public Domain image fallback when no street photo
+    // with an approved licence is available from either provider.
     const commonsRes = await fetch(commonsGeoSearchUrl(c.lat, c.lon, 1000), {
       credentials: "omit", cache: "no-store"
     });
@@ -1192,9 +1231,12 @@ async function downloadGenerated() {
     ctx.textAlign = "right";
     ctx.font = "13px sans-serif";
     ctx.fillText(sourceAttribution(), canvas.width - 20, canvas.height - 17);
-    if (selectedSceneEvidence?.provider === "mapillary") {
+    if (["mapillary","panoramax"].includes(selectedSceneEvidence?.provider)) {
       ctx.font = "12px sans-serif";
-      ctx.fillText("CC BY-SA 4.0 · modified · mapillary.com/app/?pKey=" + selectedSceneEvidence.id,
+      const original = selectedSceneEvidence.provider === "mapillary"
+        ? "mapillary.com/app/?pKey=" + selectedSceneEvidence.id
+        : "api.panoramax.xyz/#focus=pic&pic=" + selectedSceneEvidence.id;
+      ctx.fillText(selectedSceneEvidence.license + " · modified · " + original,
         canvas.width - 20, canvas.height - 38);
     }
     const resultBlob = await new Promise((resolve, reject) => {
