@@ -33,6 +33,8 @@ ALLOWED_PATHS = {
     "/styles.css": ROOT / "styles.css",
     "/src/core.mjs": ROOT / "src" / "core.mjs",
     "/src/app.mjs": ROOT / "src" / "app.mjs",
+    "/src/location.mjs": ROOT / "src" / "location.mjs",
+    "/src/commons.mjs": ROOT / "src" / "commons.mjs",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                  ".css": "text/css; charset=utf-8",
