@@ -593,7 +593,7 @@ async function generateAIPhoto() {
     notice("生成できませんでした：" + reason, true);
   } finally {
     button.disabled = !aiReady;
-    button.innerHTML = '<span>AI写真を生成する</span><span aria-hidden="true">✦</span>';
+    button.innerHTML = '<span>ローカルAIで写真化する</span><span aria-hidden="true">✦</span>';
   }
 }
 
