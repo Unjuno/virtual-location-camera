@@ -106,3 +106,19 @@ textarea{resize:vertical;min-height:82px}
 .ai-result-top button{padding:6px 10px;min-height:30px;font-size:11px;background:#122535cc}
 .ai-result-bottom{position:absolute;bottom:0;left:0;right:0;padding:12px 16px;font-size:10px;background:linear-gradient(transparent,#060c16de);text-align:center;color:#d5e4ee}
 #aiStatus{border-left:2px solid #7babbc;padding-left:9px;min-height:20px}
+
+
+/* Location-anchored photo compositing: uploaded photos never derive from Google imagery. */
+.location-photo{position:absolute;inset:0;z-index:2;display:block;width:100%;height:100%;object-fit:cover;object-position:50% 50%;pointer-events:none;filter:brightness(var(--scene-brightness,1)) saturate(1.1)}
+.stage[data-mode="photo"] .night-treatment{display:none}
+.stage[data-mode="photo"] .loading-overlay{display:none!important}
+.google-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.google-actions button{white-space:normal;text-align:center;padding:9px 6px;font-size:11px}
+.scene-modes{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--border);border-radius:9px;padding:3px;gap:4px;background:#0a1420;margin:12px 0}
+.scene-modes button{background:transparent;border:0;color:var(--muted);font-size:12px;border-radius:6px;padding:9px}
+.scene-modes button.selected{background:#264457;color:#dcf4ff;font-weight:650}
+.rights-label{display:flex;gap:9px;align-items:flex-start;margin:10px 0 14px;color:#cad5e1;font-size:11px;line-height:1.6}
+.rights-label input{accent-color:#9ddaf1;flex-shrink:0;margin-top:4px}
+.stage[data-mode="photo"] .maplibregl-control-container{display:none}
+.stage[data-mode="photo"] .scene-label{background:rgba(4,10,19,.85)}
+@media(max-width:750px){.google-actions{grid-template-columns:1fr 1fr}.scene-modes button{min-height:42px}}
