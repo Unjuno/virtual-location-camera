@@ -515,7 +515,9 @@ async function takePhoto() {
       const original = selectedSceneEvidence.provider === "mapillary"
         ? "mapillary.com/app/?pKey=" + selectedSceneEvidence.id
         : "api.panoramax.xyz/#focus=pic&pic=" + selectedSceneEvidence.id;
-      ctx.fillText(selectedSceneEvidence.license + " · modified street image · " + original,
+      const date = selectedSceneEvidence.licenseSpdx === "etalab-2.0" && selectedSceneEvidence.lastUpdated
+        ? " · updated " + selectedSceneEvidence.lastUpdated : "";
+      ctx.fillText(selectedSceneEvidence.license + date + " · modified street image · " + original,
         CAPTURE.width - 24, CAPTURE.height - 51);
     }
     ctx.fillStyle = "#f5f7fb";
@@ -903,7 +905,7 @@ async function loadObservedScene(candidate) {
       cameraHeading: candidate.cameraHeading,
       headingDifference: candidate.headingDifference,
       captureDate: candidate.captureDate,
-      lastUpdated: candidate.lastUpdated || null,
+      lastUpdated: candidate.lastUpdated || candidate.captureDate || null,
       license: candidate.license, licenseSpdx: candidate.licenseSpdx || "CC-BY-SA-4.0",
       licenseUrl: candidate.licenseUrl || "https://creativecommons.org/licenses/by-sa/4.0/",
       requiresShareAlike: needsShareAlike,
