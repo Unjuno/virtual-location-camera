@@ -357,11 +357,29 @@ function add3DBuildings() {
   }, firstLabel);
 }
 
+async function loadMapLibreEngine() {
+  if (window.maplibregl?.Map) return window.maplibregl;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/maplibre-gl@5.17.0/dist/maplibre-gl.js";
+    script.crossOrigin = "anonymous";
+    script.onload = () => {
+      if (window.maplibregl?.Map) resolve(window.maplibregl);
+      else reject(new Error("MapLibreの初期化に失敗しました。"));
+    };
+    script.onerror = () => reject(new Error("MapLibreのCDNを読み込めませんでした。"));
+    document.head.appendChild(script);
+  });
+}
+
 async function connectWorld() {
   setMapOverlay("3D地図エンジンを読み込み中…");
   try {
-    // Dynamic import keeps non-map controls usable if the CDN is unavailable.
-    const maplibregl = await import("https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs");
+    // MapLibre 6 ESM workers failed to initialize in real Chromium testing.
+    // Use the pinned 5.17 UMD build with its integrated worker for the
+    // zero-bundler, static-hosted camera. Loading remains optional: photo mode
+    // still operates if the CDN is unreachable.
+    const maplibregl = await loadMapLibreEngine();
     if (typeof maplibregl.supported === "function" && !maplibregl.supported()) {
       throw new Error("このブラウザではWebGLを利用できません。");
     }

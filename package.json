@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Geospatial virtual photography with optional authenticated GPT Image editing",
+  "description": "Geospatial virtual photography with licensed local images and optional self-hosted Hugging Face image-to-image",
   "scripts": {
     "dev": "node server/dev.mjs",
     "test": "node --test tests/*.test.mjs",
