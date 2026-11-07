@@ -11,6 +11,7 @@ import {
 import {
   studioSettings, subjectCssFilter, contactShadowGeometry, drawSubjectWithShadow
 } from "./compositor.mjs";
+import { normalizeHeading } from "./scenes.mjs";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
@@ -32,6 +33,19 @@ let photoObjectUrl = null;
 let photoLoaded = false;
 let photoFile = null;
 let photoSourcePageUrl = null;
+let selectedSceneEvidence = null;
+let sceneSearchSequence = 0;
+
+function resetSceneEvidence() {
+  selectedSceneEvidence = null;
+  $("sceneSelected").hidden = true;
+}
+function sceneSearchStale() {
+  const status = $("sceneGroundingStatus");
+  if (status && !status.textContent.startsWith("未検索")) {
+    status.textContent = "地点または方位が変わりました。実景を再検索してください。";
+  }
+}
 
 function photoActive() {
   return backgroundMode === "photo" && photoLoaded;
@@ -40,7 +54,10 @@ function subjectReady() {
   return Boolean(actorImg.complete && actorImg.naturalWidth > 0);
 }
 function canCapture() {
-  const backgroundReady = photoActive() ? $("photoRights").checked : mapLoaded && mapIdle;
+  const legalConfirmation = selectedSceneEvidence?.provider !== "mapillary" || $("mapillaryShareAlike").checked;
+  const backgroundReady = photoActive()
+    ? $("photoRights").checked && legalConfirmation
+    : mapLoaded && mapIdle;
   return subjectReady() && backgroundReady;
 }
 function updateCaptureAvailability() {
@@ -305,6 +322,7 @@ function moveCamera() {
     notice("撮影座標を設定しました。地図がつながると反映されます。現地写真の撮影地点は自動では照合しません。");
     return;
   }
+  sceneSearchStale();
   map.flyTo({
     center: [c.lon, c.lat],
     zoom: c.zoom,
@@ -398,7 +416,10 @@ async function connectWorld() {
     });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     map.on("movestart", () => { mapIdle = false; updateCaptureAvailability(); });
-    map.on("moveend", syncCameraFromMap);
+    map.on("moveend", () => {
+      syncCameraFromMap();
+      sceneSearchStale();
+    });
     map.on("error", ev => {
       const detail = ev?.error?.message || "地図タイルの取得に失敗しました。";
       console.warn("MapLibre:", detail);
@@ -483,8 +504,16 @@ async function takePhoto() {
     drawSubjectWithShadow(ctx, actorImg, placement, CAPTURE.width, CAPTURE.height, studio);
 
     // Explicit synthetic disclosure and correct per-source attribution in pixels.
+    const hasMapillaryLicense = selectedSceneEvidence?.provider === "mapillary";
     ctx.fillStyle = "rgba(8,15,27,.85)";
-    ctx.fillRect(0, CAPTURE.height - 52, CAPTURE.width, 52);
+    ctx.fillRect(0, CAPTURE.height - (hasMapillaryLicense ? 76 : 52), CAPTURE.width, hasMapillaryLicense ? 76 : 52);
+    if (hasMapillaryLicense) {
+      ctx.fillStyle = "#f5f7fb";
+      ctx.textAlign = "right";
+      ctx.font = "13px system-ui,sans-serif";
+      ctx.fillText("CC BY-SA 4.0 · modified street image · mapillary.com/app/?pKey=" + selectedSceneEvidence.id,
+        CAPTURE.width - 24, CAPTURE.height - 51);
+    }
     ctx.fillStyle = "#f5f7fb";
     ctx.font = "600 16px system-ui,sans-serif";
     ctx.textAlign = "left";
@@ -515,6 +544,7 @@ function exportScene() {
       imageIncluded: false,
       locationVerified: false,
       filePage: photoActive() ? photoSourcePageUrl : null,
+      evidence: photoActive() ? selectedSceneEvidence : null,
       photoZoom: studio.photoZoom,
       photoFocusX: studio.photoFocusX,
       photoFocusY: studio.photoFocusY,
@@ -623,7 +653,7 @@ function importGoogleLocation() {
   } catch (error) { notice("URLを読み込めません：" + error.message, true); }
 }
 
-function installLocationPhoto(file, credit = "", sourcePage = null) {
+function installLocationPhoto(file, credit = "", sourcePage = null, evidence = null) {
   const candidate = URL.createObjectURL(file);
   const img = $("locationPhoto");
   img.onload = () => {
@@ -643,6 +673,18 @@ function installLocationPhoto(file, credit = "", sourcePage = null) {
     photoFile = file;
     photoSourcePageUrl = sourcePage;
     photoLoaded = true;
+    selectedSceneEvidence = evidence ? { ...evidence, exactViewVerified: false } : null;
+    if (evidence) {
+      $("sceneSelected").hidden = false;
+      $("sceneSelectedTitle").textContent = "背景画像の根拠：実景データ";
+      const distance = evidence.distanceM == null ? "距離不明" : evidence.distanceM + " m";
+      const direction = evidence.headingDifference == null ? "撮影方向不明" : "方位差 " + evidence.headingDifference + "°";
+      $("sceneSelectedDescription").textContent = [
+        evidence.provider, distance, direction, evidence.captureDate || "日時不明",
+        "完全なカメラ一致は未検証"
+      ].join(" / ");
+      $("sceneSelectedSource").href = sourcePage || "#";
+    } else resetSceneEvidence();
     if (credit) $("photoCredit").value = credit.slice(0, 70);
     else if (replacingCommonsPhoto) $("photoCredit").value = "";
     $("photoStatus").textContent = "背景写真：" + file.name + "。地図上の地点との一致は手動で確認してください。";
@@ -686,6 +728,7 @@ function clearLocationPhoto() {
   photoObjectUrl = null;
   photoFile = null;
   photoSourcePageUrl = null;
+  resetSceneEvidence();
   photoLoaded = false;
   $("photoCredit").value = "";
   $("photoStatus").textContent = "写真は未設定です。利用権のある現地写真を選んでください。";
@@ -715,7 +758,16 @@ async function loadCommonsChoice(option) {
       throw new Error("この画像形式やファイルサイズは直接利用できません。");
     }
     const file = new File([blob], "commons-location-photo." + (blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg"), { type: blob.type });
-    installLocationPhoto(file, option.credit, option.filePage);
+    installLocationPhoto(file, option.credit, option.filePage, {
+      provider: "wikimedia-commons",
+      lat: option.lat, lon: option.lon,
+      distanceM: option.distanceM,
+      headingDifference: null,
+      cameraHeading: null,
+      captureDate: null,
+      license: option.license,
+      exactViewVerified: false
+    });
     $("commonsStatus").textContent = "選択した公開写真を読み込みました。撮影方向が指定地点と一致するか確認してください。";
   } catch (error) {
     $("commonsStatus").textContent = "自動取得できませんでした。ファイルページから許諾条件を確認し、画像を手動で選択してください。";
@@ -734,7 +786,7 @@ async function searchCommonsPhotos() {
     });
     if (!response.ok) throw new Error("Wikimedia Commonsが応答しませんでした。");
     const data = await response.json();
-    const items = filterPublicDomainCommonsImages(data);
+    const items = filterPublicDomainCommonsImages(data, 8, c);
     const gallery = $("commonsResults");
     gallery.replaceChildren();
     gallery.hidden = items.length === 0;
@@ -772,6 +824,138 @@ async function searchCommonsPhotos() {
   }
 }
 
+
+function makeSceneCard(candidate, kind) {
+  const card = document.createElement("div");
+  card.className = "scene-card";
+  if (candidate.assessment === "near-position-and-heading") card.classList.add("nearest");
+  const photo = document.createElement("img");
+  photo.loading = "lazy";
+  photo.src = kind === "mapillary" ? candidate.imageUrl : candidate.previewUrl;
+  photo.alt = kind === "mapillary"
+    ? "Mapillaryで観測された街路写真" : "Wikimedia Commonsの付近の公開写真";
+  const title = document.createElement("small");
+  title.className = "status";
+  title.textContent = kind === "mapillary"
+    ? (candidate.assessment === "near-position-and-heading"
+      ? "位置・方位が近い実景" : "付近の実景（方向は要確認）")
+    : "付近の写真（方位不明）";
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = kind === "mapillary"
+    ? [
+        candidate.distanceM + " m",
+        candidate.headingDifference == null ? "方位不明" : "方位差 " + candidate.headingDifference + "°",
+        candidate.captureDate || "撮影日不明",
+        candidate.imageType === "360" ? "360°撮影" : "通常撮影",
+        candidate.creator
+      ].join(" / ")
+    : [candidate.name, candidate.license, candidate.distanceM == null ? "場所の厳密性不明" : candidate.distanceM + " m"].join(" / ");
+
+  const link = document.createElement("a");
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "元画像と利用条件を確認 ↗";
+  link.href = kind === "mapillary" ? candidate.viewerUrl : candidate.filePage;
+
+  const choose = document.createElement("button");
+  choose.type = "button";
+  choose.textContent = "撮影背景にする";
+  choose.addEventListener("click", () => kind === "mapillary"
+    ? loadObservedScene(candidate)
+    : loadCommonsChoice(candidate));
+  card.append(photo, title, meta, link, choose);
+  return card;
+}
+
+async function loadObservedScene(candidate) {
+  if (candidate.provider !== "mapillary" || !/^\d{1,20}$/.test(candidate.id)) {
+    notice("街路画像の識別子が不正です。", true); return;
+  }
+  if (!$("photoRights").checked || !$("mapillaryShareAlike").checked) {
+    notice("Mapillaryの原画像・CC BY-SA条件を確認し、写真利用権と共有条件にチェックしてください。", true);
+    return;
+  }
+  try {
+    $("sceneGroundingStatus").textContent = "指定した街路画像を読み込んでいます…";
+    const response = await fetch(candidate.imageUrl, { credentials: "omit", cache: "no-store" });
+    if (!response.ok) throw new Error("街路画像サーバーが利用できません。");
+    const bytes = await response.blob();
+    if (!isSupportedImage({ type: bytes.type, size: bytes.size })) {
+      throw new Error("街路画像の形式またはサイズに問題があります。");
+    }
+    const ext = bytes.type === "image/png" ? "png" : bytes.type === "image/webp" ? "webp" : "jpg";
+    const file = new File([bytes], "mapillary-scene-" + candidate.id + "." + ext, { type: bytes.type });
+    const evidence = {
+      provider: "mapillary", id: candidate.id,
+      lat: candidate.lat, lon: candidate.lon,
+      distanceM: candidate.distanceM,
+      cameraHeading: candidate.cameraHeading,
+      headingDifference: candidate.headingDifference,
+      captureDate: candidate.captureDate,
+      license: candidate.license,
+      exactViewVerified: false
+    };
+    installLocationPhoto(file, candidate.attribution, candidate.viewerUrl, evidence);
+    $("sceneGroundingStatus").textContent = "街路画像を背景にしました。距離・方向は近似です。生成画像の改変にはCC BY-SAの条件が適用される場合があります。";
+  } catch (error) {
+    $("sceneGroundingStatus").textContent = "画像の読み込みに失敗しました。地図、Wikimedia、または手元の写真を利用してください。";
+    notice("街路画像を取得できません：" + error.message, true);
+  }
+}
+
+async function findObservedScenes() {
+  const button = $("findScenes");
+  const cardArea = $("sceneResults");
+  const status = $("sceneGroundingStatus");
+  button.disabled = true;
+  cardArea.replaceChildren();
+  cardArea.hidden = true;
+  status.textContent = "位置・撮影方向と実景画像の対応を検索中…";
+  const requestId = ++sceneSearchSequence;
+  try {
+    const c = cameraInputs();
+    const query = new URLSearchParams({
+      lat: String(c.lat), lon: String(c.lon),
+      heading: String(normalizeHeading(c.bearing)),
+      radius: String($("sceneRadius").value)
+    });
+    const response = await fetch("./api/scenes?" + query.toString(), {
+      credentials: "omit", cache: "no-store"
+    });
+    const result = await response.json();
+    if (requestId !== sceneSearchSequence) return;
+    if (!response.ok) throw new Error(result.error || "街路データの取得に失敗しました。");
+    const images = Array.isArray(result.candidates) ? result.candidates : [];
+    if (result.configured && images.length) {
+      for (const item of images) cardArea.append(makeSceneCard(item, "mapillary"));
+      cardArea.hidden = false;
+      const nearby = images.filter(x => x.assessment === "near-position-and-heading").length;
+      status.textContent = "街路画像 " + images.length + "件（位置・方向が近い候補 " + nearby + "件）。撮影位置と撮影方向は参考値です。";
+      return;
+    }
+
+    // Usable without Mapillary credentials: a lower-confidence Commons fallback.
+    const commonsRes = await fetch(commonsGeoSearchUrl(c.lat, c.lon, 1000), {
+      credentials: "omit", cache: "no-store"
+    });
+    if (!commonsRes.ok) throw new Error("公開画像データも取得できません。");
+    const commonsData = await commonsRes.json();
+    const candidates = filterPublicDomainCommonsImages(commonsData, 8, c);
+    if (requestId !== sceneSearchSequence) return;
+    for (const candidate of candidates) cardArea.append(makeSceneCard(candidate, "commons"));
+    cardArea.hidden = candidates.length === 0;
+    status.textContent = candidates.length
+      ? (result.configured ? "Mapillary近傍に一致する画像なし。" : "Mapillaryの検索サーバー未設定。")
+        + " Wikimediaの位置付き公開写真 " + candidates.length + "件を表示します。撮影方向は不明です。"
+      : "この地点で確認できる実景画像はありません。地名だけで景色を推測生成せず、許諾済みの現地写真を登録してください。";
+  } catch (error) {
+    status.textContent = "実景検索に失敗：" + error.message + "。現地写真を手動で追加できます。";
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function initializeUI() {
   $("preset").addEventListener("change", event => loadPreset(event.target.value));
   $("flyTo").addEventListener("click", () => { $("preset").value = "custom"; moveCamera(); });
@@ -783,6 +967,8 @@ function initializeUI() {
   $("mapMode").addEventListener("click", () => setBackgroundMode("map"));
   $("photoMode").addEventListener("click", () => setBackgroundMode("photo"));
   $("clearPhoto").addEventListener("click", clearLocationPhoto);
+  $("findScenes").addEventListener("click", findObservedScenes);
+  $("mapillaryShareAlike").addEventListener("change", updateCaptureAvailability);
   $("photoRights").addEventListener("change", updateCaptureAvailability);
   for (const id of ["latitude", "longitude"]) {
     $(id).addEventListener("keydown", event => {
@@ -790,7 +976,10 @@ function initializeUI() {
     });
   }
   for (const id of ["zoom", "pitch", "bearing"]) {
-    $(id).addEventListener("input", () => { updateCameraOutputs(); if (map) map.easeTo({
+    $(id).addEventListener("input", () => {
+      if (id === "bearing") sceneSearchStale();
+      updateCameraOutputs();
+      if (map) map.easeTo({
       zoom: Number($("zoom").value), pitch: Number($("pitch").value), bearing: Number($("bearing").value),
       duration: 100, essential: true
     }); });
@@ -1003,6 +1192,11 @@ async function downloadGenerated() {
     ctx.textAlign = "right";
     ctx.font = "13px sans-serif";
     ctx.fillText(sourceAttribution(), canvas.width - 20, canvas.height - 17);
+    if (selectedSceneEvidence?.provider === "mapillary") {
+      ctx.font = "12px sans-serif";
+      ctx.fillText("CC BY-SA 4.0 · modified · mapillary.com/app/?pKey=" + selectedSceneEvidence.id,
+        canvas.width - 20, canvas.height - 38);
+    }
     const resultBlob = await new Promise((resolve, reject) => {
       canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("画像を保存できません。")), "image/webp", 0.9);
     });

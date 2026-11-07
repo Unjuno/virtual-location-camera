@@ -4,6 +4,7 @@
  * Metadata must still be confirmed by the user at the linked file description.
  */
 import { parseLocation } from "./core.mjs";
+import { distanceMeters } from "./scenes.mjs";
 
 const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 const TRUSTED_IMAGE_HOST = "upload.wikimedia.org";
@@ -39,7 +40,7 @@ function validHttpAddress(address, host) {
   } catch { return false; }
 }
 
-export function filterPublicDomainCommonsImages(apiResponse, maxItems = 8) {
+export function filterPublicDomainCommonsImages(apiResponse, maxItems = 8, target = null) {
   const items = Object.values(apiResponse?.query?.pages ?? {});
   const results = [];
   for (const item of items) {
@@ -53,8 +54,26 @@ export function filterPublicDomainCommonsImages(apiResponse, maxItems = 8) {
     if (!validHttpAddress(thumb, TRUSTED_IMAGE_HOST)) continue;
     if (!validHttpAddress(page, FILE_PAGE_HOST)) continue;
     const name = String(item.title || "Wikimedia Commons photo").replace(/^File:/, "").slice(0, 80);
+    // Commons GeoData coordinates can refer to the depicted subject,
+    // not necessarily to the exact camera position or facing direction.
+    let photoPosition = null;
+    let distanceM = null;
+    if (target && item.coordinates?.[0]) {
+      try {
+        photoPosition = parseLocation(item.coordinates[0].lat, item.coordinates[0].lon);
+        distanceM = Math.round(distanceMeters(target.lat, target.lon, photoPosition.lat, photoPosition.lon));
+      } catch { photoPosition = null; }
+    }
     results.push({
+      provider: "wikimedia-commons",
       name, license, previewUrl: thumb, filePage: page,
+      lat: photoPosition?.lat ?? null,
+      lon: photoPosition?.lon ?? null,
+      distanceM,
+      cameraHeading: null,
+      headingDifference: null,
+      captureDate: null,
+      exactViewVerified: false,
       credit: "Wikimedia Commons / " + license
     });
     if (results.length >= maxItems) break;

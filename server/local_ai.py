@@ -36,6 +36,7 @@ ALLOWED_PATHS = {
     "/src/location.mjs": ROOT / "src" / "location.mjs",
     "/src/commons.mjs": ROOT / "src" / "commons.mjs",
     "/src/compositor.mjs": ROOT / "src" / "compositor.mjs",
+    "/src/scenes.mjs": ROOT / "src" / "scenes.mjs",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                  ".css": "text/css; charset=utf-8",
@@ -307,6 +308,16 @@ class AppHandler(BaseHTTPRequestHandler):
         if not self.allowed_origin():
             return self.respond_json(403, {"error": "接続元が許可されていません。"})
         path = urlsplit(self.path).path
+        if path == "/api/scenes":
+            # Local Python GPU runner deliberately has no Mapillary API token.
+            # Browser transparently falls back to geotagged Commons imagery.
+            return self.respond_json(200, {
+                "source": "mapillary", "configured": False, "candidates": []
+            })
+        if path == "/api/scene-image":
+            return self.respond_json(503, {
+                "error": "Mapillary images require the separate Node/Vercel proxy."
+            })
         if path == "/api/health":
             ok, device, msg = get_backend_state()
             return self.respond_json(200, {

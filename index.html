@@ -69,11 +69,31 @@
         <button class="secondary" id="openGoogleMaps" type="button">Google Mapsで場所を確認 ↗</button>
         <button class="secondary" id="openStreetView" type="button">Street Viewを確認 ↗</button>
       </div>
-      <p class="hint">新しいタブで開きます。短縮URLは直接取り込めません。実景を作品に使う場合は、利用許諾のある写真を別途用意してください。</p>
+      <p class="hint">新しいタブで開きます。Googleの画像は取得しません。実景に使用する素材は別の許諾済み画像から選びます。</p>
+      <div class="section-divider"></div>
+      <div class="panel-head compact">
+        <span class="kicker">03 / SCENE GROUNDING</span>
+        <h2>その場所の実景を調べる</h2>
+        <p>撮影地点周辺の街路写真と、その撮影方向・日時を照合します。実際のカメラ視点と完全に一致する保証はありません。</p>
+      </div>
+      <div class="field">
+        <label for="sceneRadius">実景の検索範囲</label>
+        <select id="sceneRadius">
+          <option value="50">50 m以内</option>
+          <option value="100">100 m以内</option>
+          <option value="150" selected>150 m以内</option>
+          <option value="200">200 m以内</option>
+        </select>
+      </div>
+      <button id="findScenes" type="button" class="primary wide"><span>現地の実景画像を探す</span><span aria-hidden="true">⌕</span></button>
+      <p id="sceneGroundingStatus" class="hint" role="status">未検索です。実景の位置・方向データを取得します。</p>
+      <div id="sceneResults" class="scene-gallery" aria-label="付近の街路画像と位置・方向データ" hidden></div>
+      <label class="rights-label"><input type="checkbox" id="mapillaryShareAlike"> <span>Mapillaryの街路写真はCC BY-SA 4.0です。使用前に原画像の出典とライセンスを確認し、改変作品の共有条件に従います。</span></label>
+      <div id="sceneSelected" class="readonly-field" hidden><strong id="sceneSelectedTitle">選択中の現地画像</strong><small id="sceneSelectedDescription"></small><a id="sceneSelectedSource" target="_blank" rel="noopener noreferrer">元画像とライセンスを確認 ↗</a></div>
 
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">02 / CAMERA</span>
+        <span class="kicker">04 / CAMERA</span>
         <h2>仮想カメラ</h2>
       </div>
       <div class="field slider-field">
@@ -145,7 +165,7 @@
 
     <aside class="panel right-panel" aria-label="背景・被写体と撮影">
       <div class="panel-head">
-        <span class="kicker">03 / REAL LOCATION PHOTO</span>
+        <span class="kicker">05 / REAL LOCATION PHOTO</span>
         <h2>現地写真を撮影背景にする</h2>
         <p>自分で撮影した写真、または合成・再配布の許諾を得た現地写真を読み込みます。Google Mapsのスクリーンショットは使用しないでください。</p>
       </div>
@@ -180,7 +200,7 @@
       <p class="hint">写真の見切れを調整できます。生成AIによる架空の街並み補完ではなく、元写真のトリミングのみです。</p>
       <div class="section-divider"></div>
       <div class="panel-head">
-        <span class="kicker">04 / SUBJECT</span>
+        <span class="kicker">06 / SUBJECT</span>
         <h2>被写体</h2>
         <p>人物・商品の画像をシーンの前面に配置します。</p>
       </div>
@@ -225,7 +245,7 @@
 
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">05 / CAPTURE</span>
+        <span class="kicker">07 / CAPTURE</span>
         <h2>シャッター</h2>
       </div>
       <div class="capture-details">
@@ -240,7 +260,7 @@
       <p class="hint">3D地図の2D合成は無料で利用できます。生成写真では被写体や街並みの細部が変わる場合があります。</p>
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">06 / OPTIONAL LOCAL AI</span>
+        <span class="kicker">08 / OPTIONAL LOCAL AI</span>
         <h2>Hugging Faceで写真化</h2>
         <p>公開モデルをローカルGPU上で実行し、地図・参照写真を写真風に変換。元の人物・商品画像は上から再合成して保持します。</p>
       </div>

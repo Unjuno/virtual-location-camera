@@ -140,3 +140,18 @@ canvas.location-photo{position:absolute;inset:0;z-index:2;width:100%;height:100%
 .contact-shadow{position:absolute;z-index:5;pointer-events:none;transform:translate(-50%,-50%);border-radius:50%;background:rgba(4,8,18,.4);filter:blur(12px);max-width:100%}
 .subject-handle img{filter:var(--subject-filter,brightness(1) sepia(0)) drop-shadow(0 4px 3px rgba(0,0,0,.22))}
 .stage[data-mode="photo"] .subject-handle img{filter:var(--subject-filter,brightness(1) sepia(0))}
+
+
+/* Observed street-level scene grounding. The visual card is evidence, not a
+ * claim that the rendered 3D map exactly matches the photograph. */
+.scene-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-height:560px;overflow-y:auto;margin:12px 0;padding:1px}
+.scene-card{background:#142131;border:1px solid #365369;border-radius:9px;display:flex;flex-direction:column;gap:6px;padding:8px;min-width:0}
+.scene-card img{width:100%;height:95px;object-fit:cover;border-radius:5px;background:#1c2835}
+.scene-card .meta{font-size:10px;line-height:1.5;color:#a5c4d8;overflow-wrap:anywhere}
+.scene-card .status{font-size:10px;color:#cde4ec;font-weight:600}
+.scene-card a{font-size:10px;color:#a8d9ed;word-break:break-word}
+.scene-card button{background:#28485a;color:#e1f3ff;border:1px solid #598ea7;border-radius:5px;padding:6px 4px;font-size:11px}
+.scene-card button:disabled{opacity:.48;cursor:not-allowed}
+.scene-card.nearest{border-color:#a3cfbf}
+#sceneSelected a{display:inline-block;color:#b8e7f0;margin-top:6px;font-size:11px}
+#sceneSelected{background:#132638;border-color:#38596b}
