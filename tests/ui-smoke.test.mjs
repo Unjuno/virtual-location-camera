@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as core from "../src/core.mjs";
+import * as location from "../src/location.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
@@ -17,6 +18,12 @@ function createUI() {
         zoom: "16.8", pitch: "68", bearing: "-19", subjectScale: "21", exposure: "100"
       })[id] ?? "",
       style: { setProperty(name, value) { this[name] = value; } },
+      dataset: {},
+      checked: false,
+      naturalWidth: id === "subjectImage" ? 350 : id === "locationPhoto" ? 4000 : 0,
+      naturalHeight: id === "subjectImage" ? 700 : id === "locationPhoto" ? 3000 : 0,
+      complete: true,
+      removeAttribute(name) { if (name === "src") this.src = ""; },
       classList: { toggle() {}, add() {}, remove() {} },
       hidden: false,
       disabled: false,
@@ -41,11 +48,12 @@ function createUI() {
   const URL = { createObjectURL() { return "blob:mock"; }, revokeObjectURL() {} };
   const withoutImport = source
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/core\.mjs["'];/, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/location\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = Object.keys(core);
+  const params = [...Object.keys(core), ...Object.keys(location)];
   const app = new Function("document", "window", "URL", "console", ...params, withoutImport);
-  app(document, window, URL, { warn() {}, error() {} }, ...Object.values(core));
+  app(document, window, URL, { warn() {}, error() {} }, ...Object.values(core), ...Object.values(location));
   return elements;
 }
 
@@ -80,4 +88,41 @@ test("scale, drag, reset and sample selection update the viewport", () => {
   e.resetSubject.events.click();
   assert.equal(e.subjectHandle.style.left, "52%");
   assert.equal(e.subjectHandle.style.width, "21%");
+});
+
+
+test("imports a Google Maps location URL into numerical WGS84 coordinates", () => {
+  const e = createUI();
+  e.googleMapsUrl.value = "https://www.google.com/maps/place/x/@40.760,-73.985,17z";
+  e.importGoogleUrl.events.click();
+  assert.equal(e.latitude.value, "40.760000");
+  assert.equal(e.longitude.value, "-73.985000");
+  assert.equal(e.preset.value, "custom");
+});
+
+test("licensed real photo can become a live shooting background without a 3D map", () => {
+  const e = createUI();
+  e.subjectImage.onload();
+  e.photoRights.checked = true;
+  e.photoUpload.events.change({
+    target: { files: [{ type: "image/jpeg", size: 4000, name: "my-own-photo.jpg" }], value: "selection" }
+  });
+  e.locationPhoto.onload();
+  assert.equal(e.stage.dataset.mode, "photo");
+  assert.equal(e.shutter.disabled, false);
+  assert.equal(e.photoMode.getAttribute("aria-pressed"), "true");
+  assert.match(e.photoStatus.textContent, /my-own-photo.jpg/);
+  e.clearPhoto.events.click();
+  assert.equal(e.stage.dataset.mode, "map");
+  assert.equal(e.shutter.disabled, true);
+});
+
+test("unlicensed photo cannot be used as a background", () => {
+  const e = createUI();
+  e.photoRights.checked = false;
+  e.photoUpload.events.change({
+    target: { files: [{ type: "image/png", size: 2048, name: "no-license.png" }], value: "selection" }
+  });
+  assert.equal(e.stage.dataset.mode, undefined);
+  assert.match(e.message.textContent, /権利/);
 });
