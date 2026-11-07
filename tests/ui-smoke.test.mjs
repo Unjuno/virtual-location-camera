@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import * as core from "../src/core.mjs";
 import * as location from "../src/location.mjs";
 import * as commons from "../src/commons.mjs";
+import * as compositor from "../src/compositor.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
@@ -44,11 +45,15 @@ function createUI() {
   elements.__capture = captured;
   const fakeCtx = {
     filter: "none", fillStyle: "",
-    save() {}, restore() {}, fillRect() {},
+    save() {}, restore() {}, fillRect() {}, clearRect() {},
+    beginPath() {}, ellipse() {}, fill() {},
     createLinearGradient() { return { addColorStop() {} }; },
     drawImage(...args) { captured.drawCalls.push(args); },
     fillText(text) { captured.labels.push(text); }
   };
+  elements.photoCanvas.width = 1600;
+  elements.photoCanvas.height = 900;
+  elements.photoCanvas.getContext = () => fakeCtx;
   const document = {
     activeElement: { tagName: "BODY" },
     body: { appendChild() {} },
@@ -72,11 +77,12 @@ function createUI() {
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/core\.mjs["'];/, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/location\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/commons\.mjs["'];/m, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/compositor\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons)];
+  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor)];
   const app = new Function("document", "window", "URL", "console", ...params, withoutImport);
-  app(document, window, URL, { warn() {}, error() {} }, ...Object.values(core), ...Object.values(location), ...Object.values(commons));
+  app(document, window, URL, { warn() {}, error() {} }, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor));
   return elements;
 }
 
@@ -164,8 +170,41 @@ test("real-photo composite shutter exports even with MapLibre completely unavail
   await e.shutter.events.click();
   assert.equal(e.__capture.downloads.length, 1);
   assert.match(e.__capture.downloads[0], /^virtual-location-camera-.*\.png$/);
-  assert.equal(e.__capture.drawCalls[0][0], e.locationPhoto);
-  assert.equal(e.__capture.drawCalls[1][0], e.subjectImage);
+  const backgroundDraws = e.__capture.drawCalls.filter(args => args[0] === e.locationPhoto);
+  const subjectDraws = e.__capture.drawCalls.filter(args => args[0] === e.subjectImage);
+  assert.ok(backgroundDraws.length >= 2, "Preview and exported photo both use licensed background");
+  assert.equal(subjectDraws.length, 1, "Output contains the subject once");
   assert.ok(e.__capture.labels.some(text => text.includes("Photo by Owner")));
   assert.match(e.message.textContent, /合成写真を保存/);
+});
+
+
+test("subject relighting and contact shadow controls update preview and export", async () => {
+  const e = createUI();
+  e.subjectImage.onload();
+  e.photoRights.checked = true;
+  e.photoUpload.events.change({
+    target: { files: [{ type: "image/png", size: 5000, name: "licensed-place.png" }], value: "" }
+  });
+  e.locationPhoto.onload();
+
+  e.photoZoom.value = "150";
+  e.photoZoom.events.input();
+  e.photoFocusX.value = "80";
+  e.photoFocusX.events.input();
+  e.subjectLight.value = "125";
+  e.subjectLight.events.input();
+  e.subjectWarmth.value = "20";
+  e.subjectWarmth.events.input();
+  e.shadowStrength.value = "60";
+  e.shadowStrength.events.input();
+
+  assert.equal(e.photoZoomValue.textContent, "150%");
+  assert.equal(e.photoFocusXValue.textContent, "80%");
+  assert.equal(e.subjectLightValue.textContent, "125%");
+  assert.equal(e.shadowStrengthValue.textContent, "60%");
+  assert.match(e.subjectHandle.style["--subject-filter"], /brightness\(1\.250\)/);
+  assert.equal(e.contactShadow.hidden, false);
+  await e.shutter.events.click();
+  assert.equal(e.__capture.downloads.length, 1);
 });
