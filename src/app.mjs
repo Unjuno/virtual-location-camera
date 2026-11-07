@@ -484,12 +484,12 @@ function initializeUI() {
 initializeUI();
 
 // 05 / Generative photography. The scene and upload images are processed in
-// memory. Only an explicit consented request sends data to the private API.
+// memory. Local AI generation uses Hugging Face weights on the user's GPU.
 let aiReady = false;
 let referenceFile = null;
 let generatedPhoto = null;
 
-function photoCanvasForAI() {
+function backgroundCanvasForAI() {
   if (!map || !mapLoaded || !mapIdle) throw new Error("3D地図がまだ撮影可能ではありません。");
   if (!actorImg.complete || !actorImg.naturalWidth) throw new Error("被写体の読み込みが完了していません。");
   const canvas = document.createElement("canvas");
@@ -505,8 +505,6 @@ function photoCanvasForAI() {
   gradient.addColorStop(1, "rgba(10,8,25,.10)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, 1280, 720);
-  const rect = photoRect(actorImg.naturalWidth, actorImg.naturalHeight, placement, 1280, 720);
-  context.drawImage(actorImg, rect.x, rect.y, rect.width, rect.height);
   return canvas;
 }
 
@@ -541,11 +539,11 @@ async function checkAIReady() {
     const status = await result.json();
     aiReady = status.aiConfigured === true;
     updateAIStatus(aiReady
-      ? "AI接続済み。管理者のアクセスコードと画像送信の同意が必要です。"
-      : "画像生成サーバーは未設定です。管理者がOPENAI_API_KEYとAPP_ACCESS_TOKENを設定してください。");
+      ? "Hugging Faceローカルモデルを使用可能（" + (status.device || "GPU") + "）。初回はモデルのダウンロードが発生します。"
+      : (status.message || "公開Web版ではAI生成は無効です。PCのローカルGPUサーバーから起動してください。"));
   } catch {
     aiReady = false;
-    updateAIStatus("この公開先にはAIサーバーがありません。VercelまたはローカルNodeサーバーで起動してください。");
+    updateAIStatus("AI生成はローカルGPUサーバーでのみ使えます。Web公開版では2D合成撮影を利用できます。");
   }
   $("aiRender").disabled = !aiReady;
 }
@@ -553,15 +551,13 @@ async function checkAIReady() {
 async function generateAIPhoto() {
   const button = $("aiRender");
   if (!aiReady) { notice("生成AIサーバーが設定されていません。", true); return; }
-  const passcode = $("accessCode").value;
-  if (passcode.length < 16) { notice("16文字以上のアクセスコードを入力してください。", true); return; }
-  if (!$("rightsConsent").checked) { notice("画像の利用権とOpenAIへの送信に同意してください。", true); return; }
+  if (!$("rightsConsent").checked) { notice("画像の利用権とローカル推論への使用に同意してください。", true); return; }
   button.disabled = true;
   button.textContent = "AIで写真を生成中…";
-  updateAIStatus("生成リクエストを送信しています。API利用料金が発生する場合があります。");
+  updateAIStatus("ローカルGPUで推論しています。初回はモデルのダウンロードが必要です。");
   try {
     await waitForMapIdle();
-    const composite = photoCanvasForAI().toDataURL("image/jpeg", 0.78);
+    const background = backgroundCanvasForAI().toDataURL("image/jpeg", 0.78);
     const subject = scaledImageData(actorImg, 800, "image/png", 1);
     const reference = referenceFile
       ? scaledImageData(await blobImage(referenceFile), 1280, "image/jpeg", 0.76)
@@ -569,13 +565,11 @@ async function generateAIPhoto() {
     const c = currentCamera();
     const response = await fetch("./api/render", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + passcode
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         lat: c.lat, lon: c.lon,
-        composite, subject, reference,
+        background, subject, reference,
+        placement: normalizePlacement(placement),
         subjectType: $("aiSubjectKind").value,
         description: $("artDirection").value.slice(0, 600),
         acceptRights: true
@@ -590,7 +584,7 @@ async function generateAIPhoto() {
     $("aiResultImage").src = output.image;
     $("aiResult").hidden = false;
     $("aiDownload").disabled = false;
-    updateAIStatus("AI生成完了。構図・人物の同一性・地理的な正確性は保証されません。");
+    updateAIStatus("ローカル生成完了。被写体は元画像から再合成しました。地理的な正確性と物理的な影は保証されません。");
     notice("生成写真を表示しました。必要に応じて編集画面へ戻れます。");
   } catch (error) {
     console.error("AI generation failed", error.name);
