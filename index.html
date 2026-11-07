@@ -54,6 +54,22 @@
       </div>
       <p id="coordinateHelp" class="hint">WGS84・十進度。例：40.7580, -73.9855</p>
       <button class="primary wide" id="flyTo" type="button">座標へ移動 <span aria-hidden="true">↗</span></button>
+      <div class="section-divider"></div>
+      <div class="panel-head compact">
+        <span class="kicker">02 / GOOGLE MAPS LOCATION</span>
+        <h2>Google Mapsで場所を決める</h2>
+        <p>Google Mapsで選んだ地点のURLから座標を取り込みます。Googleの画像はコピー・抽出しません。</p>
+      </div>
+      <div class="field">
+        <label for="googleMapsUrl">Google Mapsの地点URL</label>
+        <input id="googleMapsUrl" type="url" maxlength="2048" placeholder="https://www.google.com/maps/@40.758,-73.985,17z" spellcheck="false">
+      </div>
+      <button class="secondary wide" type="button" id="importGoogleUrl">URLから座標を取り込む</button>
+      <div class="google-actions">
+        <button class="secondary" id="openGoogleMaps" type="button">Google Mapsで場所を確認 ↗</button>
+        <button class="secondary" id="openStreetView" type="button">Street Viewを確認 ↗</button>
+      </div>
+      <p class="hint">新しいタブで開きます。短縮URLは直接取り込めません。実景を作品に使う場合は、利用許諾のある写真を別途用意してください。</p>
 
       <div class="section-divider"></div>
       <div class="panel-head compact">
@@ -93,6 +109,7 @@
       <div class="stage-wrap">
         <div id="stage" class="stage">
           <div id="map" aria-label="世界の3D地図"></div>
+          <img id="locationPhoto" class="location-photo" alt="利用許諾のある現地参照写真" draggable="false" hidden>
           <div class="night-treatment" aria-hidden="true"></div>
           <div id="loadingOverlay" class="loading-overlay">
             <div class="load-orbit" aria-hidden="true"></div>
@@ -113,20 +130,35 @@
           <div class="viewfinder-corner bl"></div>
           <div class="viewfinder-corner br"></div>
           <div class="crosshair" aria-hidden="true">＋</div>
-          <div class="scene-label">SYNTHETIC COMPOSITE <span>•</span> NOT ON-LOCATION</div>
+          <div class="scene-label" id="sceneLabel">SYNTHETIC COMPOSITE <span>•</span> NOT ON-LOCATION</div>
         </div>
       </div>
 
       <div class="stage-bottom">
-        <div class="help-text">被写体をドラッグして配置 ／ 背景をドラッグして視点変更</div>
+        <div class="help-text" id="viewHelp">被写体をドラッグして配置 ／ 背景をドラッグして視点変更</div>
         <div class="map-credit">© <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a> / © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a></div>
       </div>
       <p id="message" class="message" role="status" aria-live="polite">地図データの読み込みを確認しています。</p>
     </main>
 
-    <aside class="panel right-panel" aria-label="被写体と撮影">
+    <aside class="panel right-panel" aria-label="背景・被写体と撮影">
       <div class="panel-head">
-        <span class="kicker">03 / SUBJECT</span>
+        <span class="kicker">03 / REAL LOCATION PHOTO</span>
+        <h2>現地写真を撮影背景にする</h2>
+        <p>自分で撮影した写真、または合成・再配布の許諾を得た現地写真を読み込みます。Google Mapsのスクリーンショットは使用しないでください。</p>
+      </div>
+      <label class="rights-label"><input type="checkbox" id="photoRights"> <span>現地写真を合成・保存する権利があることを確認しました</span></label>
+      <label class="upload-control" for="photoUpload"><span>現地の背景写真を読み込む</span><strong>画像を選択 ⇧</strong></label>
+      <input id="photoUpload" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      <p id="photoStatus" class="hint">写真を入れると現地写真モードが有効になり、3D地図が使えない場合も合成写真を保存できます。</p>
+      <div class="scene-modes">
+        <button type="button" id="mapMode" aria-pressed="true" class="selected">3D地図</button>
+        <button type="button" id="photoMode" aria-pressed="false">現地写真</button>
+      </div>
+      <button id="clearPhoto" type="button" class="secondary wide" disabled>現地写真を解除</button>
+      <div class="section-divider"></div>
+      <div class="panel-head">
+        <span class="kicker">04 / SUBJECT</span>
         <h2>被写体</h2>
         <p>人物・商品の画像をシーンの前面に配置します。</p>
       </div>
@@ -158,7 +190,7 @@
 
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">04 / CAPTURE</span>
+        <span class="kicker">05 / CAPTURE</span>
         <h2>シャッター</h2>
       </div>
       <div class="capture-details">
@@ -173,7 +205,7 @@
       <p class="hint">3D地図の2D合成は無料で利用できます。生成写真では被写体や街並みの細部が変わる場合があります。</p>
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">05 / LOCAL GENERATIVE PHOTO</span>
+        <span class="kicker">06 / OPTIONAL LOCAL AI</span>
         <h2>Hugging Faceで写真化</h2>
         <p>公開モデルをローカルGPU上で実行し、地図・参照写真を写真風に変換。元の人物・商品画像は上から再合成して保持します。</p>
       </div>
@@ -181,9 +213,7 @@
         <label for="aiSubjectKind">被写体の種類</label>
         <select id="aiSubjectKind"><option value="person">人物</option><option value="product">商品</option></select>
       </div>
-      <label class="upload-control" for="referenceUpload"><span>実景写真（任意）</span><strong>追加 ⇧</strong></label>
-      <input id="referenceUpload" type="file" accept="image/png,image/jpeg,image/webp" hidden>
-      <p id="referenceStatus" class="hint">写真を追加すると生成の背景ベースが地図からその写真に切り替わります。位置・構図の一致は保証されません。</p>
+      <p class="hint">現地写真が設定されている場合、ローカルAIではその写真を背景参照に利用します。地図上の地点と写真の撮影地点が一致するかはユーザーが確認してください。</p>
       <div class="field">
         <label for="artDirection">写真の指示（任意）</label>
         <textarea id="artDirection" maxlength="600" rows="3" placeholder="例：ニューヨークの夜、自然な反射光、35mmレンズ風"></textarea>
