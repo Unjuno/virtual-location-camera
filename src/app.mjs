@@ -524,11 +524,13 @@ function installLocationPhoto(file, credit = "", sourcePage = null) {
       return;
     }
     if (photoObjectUrl && photoObjectUrl !== candidate) URL.revokeObjectURL(photoObjectUrl);
+    const replacingCommonsPhoto = Boolean(photoSourcePageUrl);
     photoObjectUrl = candidate;
     photoFile = file;
     photoSourcePageUrl = sourcePage;
     photoLoaded = true;
     if (credit) $("photoCredit").value = credit.slice(0, 70);
+    else if (replacingCommonsPhoto) $("photoCredit").value = "";
     $("photoStatus").textContent = "背景写真：" + file.name + "。地図上の地点との一致は手動で確認してください。";
     $("clearPhoto").disabled = false;
     setBackgroundMode("photo");
