@@ -72,7 +72,7 @@ test("streaming image proxy stops oversized images before buffering", async () =
       if(calls===1)return {ok:true,json:async()=>({thumb_1024_url:"https://scontent.xx.fbcdn.net/large.jpg"})};
       return {
         ok:true,
-        headers:{get(){return null}},
+        headers:{get(name){return name==="content-type"?"image/jpeg":null}},
         body:new ReadableStream({start(controller){
           controller.enqueue(new Uint8Array(3_600_000));
           controller.close();
