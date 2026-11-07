@@ -32,5 +32,6 @@ jobs:
         run: |
           test -f index.html
           test -f src/app.mjs
+          test -f src/compositor.mjs
           test -f api/render.js
           test -f server/local_ai.py
