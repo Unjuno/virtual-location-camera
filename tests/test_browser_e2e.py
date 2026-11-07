@@ -163,6 +163,26 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             self.assertTrue(page.locator("canvas.maplibregl-canvas").count() > 0)
             self.assertIn("3D MAP", page.locator("#mapState").inner_text())
             self.assertTrue(page.locator("#map canvas").count() > 0)
+
+            # Real map pixels must be exportable (WebGL2 / CORS / context).
+            with page.expect_download(timeout=15000) as download_info:
+                page.locator("#shutter").click()
+            photo = download_info.value
+            with tempfile.TemporaryDirectory() as scratch:
+                exported = Path(scratch) / photo.suggested_filename
+                photo.save_as(exported)
+                data = exported.read_bytes()
+                self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(struct.unpack(">II", data[16:24]), (1600, 900))
+                self.assertGreater(len(data), 1000)
+
+            # Moving to another city should update coordinates and remain
+            # capture-ready rather than getting stuck after a 3D tile swap.
+            page.locator("#preset").select_option("shibuya")
+            page.wait_for_function(
+                "() => Math.abs(Number(document.querySelector('#latitude').value) - 35.6595) < 0.003 && !document.querySelector('#shutter').disabled",
+                timeout=45000
+            )
         finally:
             context.close()
 
