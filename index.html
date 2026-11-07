@@ -173,9 +173,9 @@
       <p class="hint">3D地図の2D合成は無料で利用できます。生成写真では被写体や街並みの細部が変わる場合があります。</p>
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">05 / GENERATIVE PHOTO</span>
-        <h2>AIで写真化</h2>
-        <p>地理空間の構図を基に、照明や質感を生成AIで補完します。これは合成写真であり、現地実写の再現を保証しません。</p>
+        <span class="kicker">05 / LOCAL GENERATIVE PHOTO</span>
+        <h2>Hugging Faceで写真化</h2>
+        <p>公開モデルをローカルGPU上で実行し、地図・参照写真を写真風に変換。元の人物・商品画像は上から再合成して保持します。</p>
       </div>
       <div class="field">
         <label for="aiSubjectKind">被写体の種類</label>
@@ -183,20 +183,16 @@
       </div>
       <label class="upload-control" for="referenceUpload"><span>実景写真（任意）</span><strong>追加 ⇧</strong></label>
       <input id="referenceUpload" type="file" accept="image/png,image/jpeg,image/webp" hidden>
-      <p id="referenceStatus" class="hint">使用権のある実景写真を指定すると、光や建物の参考になります。</p>
+      <p id="referenceStatus" class="hint">写真を追加すると生成の背景ベースが地図からその写真に切り替わります。位置・構図の一致は保証されません。</p>
       <div class="field">
         <label for="artDirection">写真の指示（任意）</label>
         <textarea id="artDirection" maxlength="600" rows="3" placeholder="例：ニューヨークの夜、自然な反射光、35mmレンズ風"></textarea>
       </div>
-      <div class="field">
-        <label for="accessCode">生成アクセスコード</label>
-        <input id="accessCode" type="password" autocomplete="off" spellcheck="false" placeholder="管理者が設定したコード">
-      </div>
-      <label class="consent-control"><input type="checkbox" id="rightsConsent"> <span>画像の利用権を確認し、画像が外部のOpenAI APIへ送信されることに同意する</span></label>
-      <p id="aiStatus" class="hint" role="status">生成AIサーバーを確認中…</p>
-      <button type="button" class="primary wide ai-generate-button" id="aiRender" disabled><span>AI写真を生成する</span><span aria-hidden="true">✦</span></button>
+       <label class="consent-control"><input type="checkbox" id="rightsConsent"> <span>画像の利用権を確認し、ローカルGPUで画像を処理することに同意する</span></label>
+      <p id="aiStatus" class="hint" role="status">ローカルモデルを確認中…</p>
+      <button type="button" class="primary wide ai-generate-button" id="aiRender" disabled><span>ローカルAIで写真化する</span><span aria-hidden="true">✦</span></button>
       <button type="button" class="secondary wide" id="aiDownload" disabled>生成写真をWebPで保存</button>
-      <p class="hint">生成にはAPI利用料金が発生します。キーはサーバーのみで保持されます。</p>
+      <p class="hint">外部画像生成APIは使いません。GPUとモデルの初回ダウンロードが必要です。公開Vercel版ではAI生成できません。</p>
 
     </aside>
   </div>
