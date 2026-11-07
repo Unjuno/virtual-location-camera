@@ -1,0 +1,9 @@
+# Install torch matching your CUDA / Apple Silicon / CPU environment first:
+# https://pytorch.org/get-started/locally/
+# Use a Python virtual environment.
+torch>=2.3,<3.0
+diffusers>=0.35,<0.43
+transformers>=4.41,<5
+accelerate>=0.29,<2
+safetensors>=0.4,<1
+Pillow>=10,<13
