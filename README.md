@@ -96,9 +96,9 @@ VercelはGPU推論用に設定していないため、**「ローカルAIで写�
 - モデル重みを保存する空きディスク領域と十分なRAM/VRAM
 - モデルの利用規約に同意できること
 
-GPUの必要メモリや速度は解像度・PyTorch・ドライバ・環境で異なります。**このリポジトリでは特定GPUでの推論ベンチマークを測定していません。** GPU非搭載PCで \`VLC_ALLOW_CPU=1\` を指定することもできますが、大幅に低速になる場合があります。
+GPUの必要メモリや速度は解像度・PyTorch・ドライバ・環境で異なります。**このリポジトリでは特定GPUでの推論ベンチマークを測定していません。** GPU非搭載PCで `VLC_ALLOW_CPU=1` を指定することもできますが、大幅に低速になる場合があります。
 
-\`\`\`bash
+```bash
 git clone https://github.com/Unjuno/virtual-location-camera.git
 cd virtual-location-camera
 python3 -m venv .venv
@@ -109,15 +109,15 @@ source .venv/bin/activate
 # https://pytorch.org/get-started/locally/
 python -m pip install -r requirements-ai.txt
 python server/local_ai.py
-\`\`\`
+```
 
 **http://127.0.0.1:8000** を開きます。
 
-\`/api/health\` が \`aiConfigured: true\` を返すと、画像生成が有効になります。最初の生成時にHugging Faceから公開モデルの重みがダウンロードされ、その後はローカルのGPUで推論します。**画像自体はHugging Face Inference Providersに送信されません。**
+`/api/health` が `aiConfigured: true` を返すと、画像生成が有効になります。最初の生成時にHugging Faceから公開モデルの重みがダウンロードされ、その後はローカルのGPUで推論します。**画像自体はHugging Face Inference Providersに送信されません。**
 
-ローカルサーバーは安全のため \`127.0.0.1\` にのみバインドし、同一オリジン以外のリクエストを拒否します。公開インターネットへ直接転送・公開しないでください。ユーザー認証・共有レート制限・ジョブキューなどはありません。
+ローカルサーバーは安全のため `127.0.0.1` にのみバインドし、同一オリジン以外のリクエストを拒否します。公開インターネットへ直接転送・公開しないでください。ユーザー認証・共有レート制限・ジョブキューなどはありません。
 
-通常の無料デモをローカルで動かすだけならNode.js 22で \`npm run dev\` を利用できます（このNodeサーバーはAI生成に対応しません）。
+通常の無料デモをローカルで動かすだけならNode.js 22で `npm run dev` を利用できます（このNodeサーバーはAI生成に対応しません）。
 
 ### 画像の参照について
 
@@ -131,22 +131,22 @@ python server/local_ai.py
 
 Node.js 22 + Python 3.11:
 
-\`\`\`bash
+```bash
 npm run check
 npm test
 python -m compileall -q server tests/test_local_ai.py
 python -m unittest discover -s tests -p 'test_local_ai.py' -v
-\`\`\`
+```
 
 ### 実ブラウザE2Eテスト
 
 Chromiumを使用し、外部地図CDNを遮断した状態で「現地写真の読み込み → 透明な被写体の読み込み → 背景トリミング・被写体光量・接地影の変更 → 1600×900 PNG保存」を確認するテストを追加しています。
 
-\`\`\`bash
+```bash
 python -m pip install 'playwright==1.57.0'
 python -m playwright install chromium
 python -m unittest discover -s tests -p 'test_browser_e2e.py' -v
-\`\`\`
+```
 
 GitHub ActionsではNodeの静的/スモーク検証とPythonリクエスト検証に加え、Playwright/Chromiumの実ブラウザテストを別ジョブで実行する設定です。**このチャット環境からのGitHub Actions実行結果および実際のChromeによるPNG出力結果はまだ確認していません。** E2Eテストの存在をテスト成功と誤認しないでください。
 
@@ -156,7 +156,7 @@ GitHub Actionsで、座標境界、Google Maps URL解析と悪意あるホスト
 
 ## 技術構成
 
-\`\`\`text
+```text
 Browser
   ├─ MapLibre GL JS + OpenFreeMap → 3D地理データ・カメラ
   ├─ PNG/WebP主体の2D被写体オーバーレイ → 即時合成PNG
@@ -168,21 +168,21 @@ Python 3.11+ 127.0.0.1:8000
   ├─ Stable Diffusion 1.5 weights from Hugging Face Hub
   ├─ CUDA/MPS (CPUはオプション)
   └─ PILによる元の被写体の再合成 → WebP
-\`\`\`
+```
 
 ファイル一覧：
-- \`index.html\` / \`styles.css\`：撮影UI
-- \`src/core.mjs\`：カメラ・配置計算
-- \`src/location.mjs\`：Google Maps地点URL解析、公式リンク、実景写真の中心クロップ計算
-- \`src/compositor.mjs\`：明るさ・接地影の計算とCanvas合成
-- \`src/commons.mjs\`：GeoSearchによる位置付き公開写真検索と許諾条件による選別
-- \`src/app.mjs\`：WebGL地図・シーン撮影・ローカルAI接続
-- \`server/local_ai.py\`：ローカル推論サーバー
-- \`server/dev.mjs\`：無料デモのNode開発サーバー
-- \`api/render.js\`：Vercelでは501を返し、外部課金推論を行わない
-- \`api/health.js\`：VercelではAI生成が無効と通知
-- \`tests/\`：Node/Pythonユニットテスト
-- \`LICENSE\`：アプリのMITライセンス
+- `index.html` / `styles.css`：撮影UI
+- `src/core.mjs`：カメラ・配置計算
+- `src/location.mjs`：Google Maps地点URL解析、公式リンク、実景写真の中心クロップ計算
+- `src/compositor.mjs`：明るさ・接地影の計算とCanvas合成
+- `src/commons.mjs`：GeoSearchによる位置付き公開写真検索と許諾条件による選別
+- `src/app.mjs`：WebGL地図・シーン撮影・ローカルAI接続
+- `server/local_ai.py`：ローカル推論サーバー
+- `server/dev.mjs`：無料デモのNode開発サーバー
+- `api/render.js`：Vercelでは501を返し、外部課金推論を行わない
+- `api/health.js`：VercelではAI生成が無効と通知
+- `tests/`：Node/Pythonユニットテスト
+- `LICENSE`：アプリのMITライセンス
 
 ## ライセンスとデータ使用上の注意
 
