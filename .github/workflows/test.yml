@@ -28,6 +28,11 @@ jobs:
         run: python -m compileall -q server tests/test_local_ai.py
       - name: Test local model input validation without GPU
         run: python -m unittest discover -s tests -p 'test_local_ai.py' -v
+      - name: Live Panoramax integration (external service, non-gating)
+        continue-on-error: true
+        env:
+          PANORAMAX_LIVE: '1'
+        run: node --test tests/live-panoramax.test.mjs
       - name: Static entrypoint checks
         run: |
           test -f index.html
@@ -36,6 +41,9 @@ jobs:
           test -f src/scenes.mjs
           test -f api/scenes.js
           test -f api/scene-image.js
+          test -f src/panoramax.mjs
+          test -f api/panoramax-scenes.js
+          test -f api/panoramax-image.js
           test -f api/render.js
           test -f server/local_ai.py
 

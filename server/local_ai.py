@@ -37,6 +37,7 @@ ALLOWED_PATHS = {
     "/src/commons.mjs": ROOT / "src" / "commons.mjs",
     "/src/compositor.mjs": ROOT / "src" / "compositor.mjs",
     "/src/scenes.mjs": ROOT / "src" / "scenes.mjs",
+    "/src/panoramax.mjs": ROOT / "src" / "panoramax.mjs",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                  ".css": "text/css; charset=utf-8",
@@ -314,6 +315,10 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.respond_json(200, {
                 "source": "mapillary", "configured": False, "candidates": []
             })
+        if path == "/api/panoramax-scenes":
+            return self.respond_json(503, {"error": "Panoramax is available on the Node/Vercel server. Use Commons or your own photos in the local GPU server."})
+        if path == "/api/panoramax-image":
+            return self.respond_json(503, {"error": "Panoramax image proxy requires Node/Vercel."})
         if path == "/api/scene-image":
             return self.respond_json(503, {
                 "error": "Mapillary images require the separate Node/Vercel proxy."
