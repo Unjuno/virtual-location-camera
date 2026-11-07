@@ -12,7 +12,10 @@ export const MAX_SCENE_CANDIDATES = 12;
 export function normalizeHeading(degrees) {
   if (degrees === null || degrees === undefined || degrees === "") return null;
   const n = Number(degrees);
-  return Number.isFinite(n) ? ((n % 360) + 360) % 360 : null;
+  if (!Number.isFinite(n)) return null;
+  const normalized = ((n % 360) + 360) % 360;
+  // Removing floating-point wrap noise avoids displaying 45.3199999999°.
+  return Math.round(normalized * 1e8) / 1e8;
 }
 
 export function headingDelta(a, b) {
