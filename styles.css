@@ -60,7 +60,7 @@ input[type=range]{width:100%;accent-color:#8ed3ee;cursor:pointer;margin:7px 0}
 .load-orbit{border:2px solid #44576c;border-top-color:#a0e0f5;border-radius:50%;width:32px;height:32px;animation:spin 1s linear infinite;margin-bottom:16px}
 .loading-overlay.error .load-orbit{display:none}
 @keyframes spin{to{transform:rotate(360deg)}}
-.subject-handle{position:absolute;z-index:6;left:52%;top:65%;width:21%;transform:translate(-50%,-50%);touch-action:none;cursor:grab;user-select:none}
+.subject-handle{position:absolute;z-index:6;left:52%;top:55%;width:21%;transform:translate(-50%,-50%);touch-action:none;cursor:grab;user-select:none}
 .subject-handle:active{cursor:grabbing}
 .subject-handle img{display:block;width:100%;height:auto;filter:drop-shadow(0 12px 9px rgba(0,0,0,.55));pointer-events:none;-webkit-user-drag:none}
 .subject-outline{position:absolute;inset:-5px;border:1px dashed rgba(165,226,255,.65);border-radius:8px;pointer-events:none;opacity:.5}
