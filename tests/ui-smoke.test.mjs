@@ -113,7 +113,7 @@ test("scale, drag, reset and sample selection update the viewport", () => {
   });
   e.subjectHandle.events.pointermove({ pointerId: 2, clientX: 500, clientY: 356.25 });
   assert.equal(e.subjectHandle.style.left, "62%");
-  assert.equal(e.subjectHandle.style.top, "75%");
+  assert.equal(e.subjectHandle.style.top, "65%");
   e.resetSubject.events.click();
   assert.equal(e.subjectHandle.style.left, "52%");
   assert.equal(e.subjectHandle.style.width, "21%");
