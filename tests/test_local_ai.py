@@ -83,6 +83,30 @@ class LocalModelTests(unittest.TestCase):
         self.assertEqual(device, "missing")
         self.assertTrue(description)
 
+    def test_compositing_controls_use_safe_defaults(self):
+        defaults = module.parse_compositing(None)
+        self.assertEqual(defaults["subjectExposure"], 1.0)
+        self.assertEqual(defaults["contactShadow"], 0.4)
+        parsed = module.parse_request(body(compositing={
+            "subjectExposure": 1.25, "subjectWarmth": 0.2,
+            "contactShadow": 0.65, "shadowSoftness": 0.8
+        }))
+        self.assertEqual(parsed["compositing"]["subjectExposure"], 1.25)
+        self.assertEqual(parsed["compositing"]["shadowSoftness"], 0.8)
+
+    def test_compositing_rejects_nonfinite_and_out_of_range_values(self):
+        candidates = [
+            {"subjectExposure": float("nan")},
+            {"subjectExposure": 5},
+            {"subjectWarmth": -1},
+            {"contactShadow": 0.95},
+            {"shadowSoftness": 0},
+            {"subjectExposure": "Infinity"},
+        ]
+        for candidate in candidates:
+            with self.subTest(candidate=candidate), self.assertRaises(module.RequestError):
+                module.parse_request(body(compositing=candidate))
+
     def test_listener_rejects_external_host(self):
         # Test origin/host safety directly without binding to the network.
         handler = object.__new__(module.AppHandler)
