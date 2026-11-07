@@ -5,6 +5,9 @@ import {
 import {
   parseGoogleMapsLocation, googleMapsPlaceUrl, googleMapsStreetViewUrl, coverSourceRect
 } from "./location.mjs";
+import {
+  commonsGeoSearchUrl, filterPublicDomainCommonsImages, isTrustedCommonsImageUrl
+} from "./commons.mjs";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
@@ -24,6 +27,7 @@ let backgroundMode = "map";
 let photoObjectUrl = null;
 let photoLoaded = false;
 let photoFile = null;
+let photoSourcePageUrl = null;
 
 function photoActive() {
   return backgroundMode === "photo" && photoLoaded;
@@ -421,7 +425,8 @@ function exportScene() {
     snapshot.background = {
       mode: photoActive() ? "user-photo" : "map",
       imageIncluded: false,
-      locationVerified: false
+      locationVerified: false,
+      filePage: photoActive() ? photoSourcePageUrl : null
     };
     const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
     downloadBlob(blob, "virtual-location-scene-" + dateStamp() + ".json");
@@ -504,18 +509,7 @@ function importGoogleLocation() {
   } catch (error) { notice("URLを読み込めません：" + error.message, true); }
 }
 
-function onPhotoUpload(event) {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) return;
-  if (!$("photoRights").checked) {
-    notice("現地写真を使う権利があることを確認してチェックしてください。", true);
-    return;
-  }
-  if (!isSupportedImage(file)) {
-    notice("現地写真はPNG・JPEG・WebP、15MB以下にしてください。", true);
-    return;
-  }
+function installLocationPhoto(file, credit = "", sourcePage = null) {
   const candidate = URL.createObjectURL(file);
   const img = $("locationPhoto");
   img.onload = () => {
@@ -532,21 +526,39 @@ function onPhotoUpload(event) {
     if (photoObjectUrl && photoObjectUrl !== candidate) URL.revokeObjectURL(photoObjectUrl);
     photoObjectUrl = candidate;
     photoFile = file;
+    photoSourcePageUrl = sourcePage;
     photoLoaded = true;
-    $("photoStatus").textContent = "背景写真：" + file.name + "。撮影地点との一致は手動で確認してください。";
+    if (credit) $("photoCredit").value = credit.slice(0, 70);
+    $("photoStatus").textContent = "背景写真：" + file.name + "。地図上の地点との一致は手動で確認してください。";
     $("clearPhoto").disabled = false;
     setBackgroundMode("photo");
-    notice("実景写真を背景に設定しました。地図に接続できなくても合成撮影できます。");
+    notice("実在の場所の写真を背景に設定しました。地図の読み込みに依存せず合成できます。");
   };
   img.onerror = () => {
     URL.revokeObjectURL(candidate);
     photoLoaded = false;
     photoFile = null;
+    photoSourcePageUrl = null;
     $("clearPhoto").disabled = true;
     setBackgroundMode("map");
-    notice("写真を読み込めませんでした。別の画像を選んでください。", true);
+    notice("背景写真を読み込めませんでした。別の画像を選んでください。", true);
   };
   img.src = candidate;
+}
+
+function onPhotoUpload(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  if (!$("photoRights").checked) {
+    notice("写真を合成に使う権利があることを確認してチェックしてください。", true);
+    return;
+  }
+  if (!isSupportedImage(file)) {
+    notice("現地写真はPNG・JPEG・WebP、15MB以下にしてください。", true);
+    return;
+  }
+  installLocationPhoto(file);
 }
 
 function clearLocationPhoto() {
@@ -557,11 +569,91 @@ function clearLocationPhoto() {
   if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
   photoObjectUrl = null;
   photoFile = null;
+  photoSourcePageUrl = null;
   photoLoaded = false;
+  $("photoCredit").value = "";
   $("photoStatus").textContent = "写真は未設定です。利用権のある現地写真を選んでください。";
   $("clearPhoto").disabled = true;
   setBackgroundMode("map");
   notice("現地写真を解除しました。");
+}
+
+
+async function loadCommonsChoice(option) {
+  if (!$("photoRights").checked) {
+    notice("公開画像のファイルページで利用条件を確認し、写真の使用権チェックを入れてください。", true);
+    return;
+  }
+  if (!isTrustedCommonsImageUrl(option.previewUrl)) {
+    notice("画像の取得元がWikimediaではありません。", true);
+    return;
+  }
+  try {
+    $("commonsStatus").textContent = "Wikimedia Commonsの写真を取得しています…";
+    const response = await fetch(option.previewUrl, {
+      mode: "cors", credentials: "omit", redirect: "follow"
+    });
+    if (!response.ok) throw new Error("画像の取得に失敗しました。");
+    const blob = await response.blob();
+    if (!isSupportedImage({ type: blob.type, size: blob.size })) {
+      throw new Error("この画像形式やファイルサイズは直接利用できません。");
+    }
+    const file = new File([blob], "commons-location-photo." + (blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg"), { type: blob.type });
+    installLocationPhoto(file, option.credit, option.filePage);
+    $("commonsStatus").textContent = "選択した公開写真を読み込みました。撮影方向が指定地点と一致するか確認してください。";
+  } catch (error) {
+    $("commonsStatus").textContent = "自動取得できませんでした。ファイルページから許諾条件を確認し、画像を手動で選択してください。";
+    notice("周辺写真を読み込めません：" + error.message, true);
+  }
+}
+
+async function searchCommonsPhotos() {
+  const button = $("searchCommons");
+  button.disabled = true;
+  $("commonsStatus").textContent = "公開写真を検索しています…";
+  try {
+    const c = cameraInputs();
+    const response = await fetch(commonsGeoSearchUrl(c.lat, c.lon), {
+      cache: "no-store", credentials: "omit"
+    });
+    if (!response.ok) throw new Error("Wikimedia Commonsが応答しませんでした。");
+    const data = await response.json();
+    const items = filterPublicDomainCommonsImages(data);
+    const gallery = $("commonsResults");
+    gallery.replaceChildren();
+    gallery.hidden = items.length === 0;
+
+    for (const item of items) {
+      const card = document.createElement("div");
+      card.className = "commons-card";
+      const image = document.createElement("img");
+      image.src = item.previewUrl;
+      image.alt = item.name;
+      image.loading = "lazy";
+      const description = document.createElement("small");
+      description.textContent = item.name + " / " + item.license;
+      const link = document.createElement("a");
+      link.href = item.filePage;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "撮影者とライセンスを確認 ↗";
+      const choose = document.createElement("button");
+      choose.type = "button";
+      choose.textContent = "背景に使う";
+      choose.addEventListener("click", () => loadCommonsChoice(item));
+      card.append(image, description, link, choose);
+      gallery.append(card);
+    }
+    $("commonsStatus").textContent = items.length
+      ? "半径1km以内のCC0/パブリックドメイン表示画像 " + items.length + "件。現地の眺めと一致するとは限りません。使用前にファイルページを確認してください。"
+      : "この地点の近くに自動利用候補がありません。自分の写真をアップロードしてください。";
+  } catch (error) {
+    $("commonsResults").hidden = true;
+    $("commonsStatus").textContent = "周辺写真を取得できませんでした。ネット接続を確認するか、写真を手動で選択してください。";
+    notice("周辺写真の検索に失敗：" + error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function initializeUI() {
@@ -571,6 +663,7 @@ function initializeUI() {
   $("openGoogleMaps").addEventListener("click", () => openGoogleMapsView("map"));
   $("openStreetView").addEventListener("click", () => openGoogleMapsView("street"));
   $("photoUpload").addEventListener("change", onPhotoUpload);
+  $("searchCommons").addEventListener("click", searchCommonsPhotos);
   $("mapMode").addEventListener("click", () => setBackgroundMode("map"));
   $("photoMode").addEventListener("click", () => setBackgroundMode("photo"));
   $("clearPhoto").addEventListener("click", clearLocationPhoto);
