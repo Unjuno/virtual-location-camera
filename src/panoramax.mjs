@@ -102,6 +102,8 @@ export function normalizePanoramaxResults(data, request) {
     const direction = headingDelta(heading,targetHeading);
     const rawDate = String(item?.properties?.datetime ?? "");
     const captureDate = /^\d{4}-\d{2}-\d{2}T/.test(rawDate) ? rawDate.slice(0,10) : null;
+    const updatedRaw = String(item?.properties?.updated ?? "");
+    const lastUpdated = /^\d{4}-\d{2}-\d{2}T/.test(updatedRaw) ? updatedRaw.slice(0,10) : captureDate;
     const artist = item?.providers?.find(p => p?.roles?.includes("producer"))?.name
       || item?.properties?.exif?.["Exif.Image.Artist"]
       || "Panoramax contributor";
@@ -114,7 +116,7 @@ export function normalizePanoramaxResults(data, request) {
       distanceM:Math.round(distanceM),
       cameraHeading:heading,
       headingDifference:direction===null?null:Math.round(direction),
-      captureDate, imageType:"perspective",
+      captureDate, lastUpdated, imageType:"perspective",
       creator,
       assessment:sceneAssessment(distanceM,direction),
       imageUrl:"/api/panoramax-image?id="+id+"&size=thumb",
