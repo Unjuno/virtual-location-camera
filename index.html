@@ -155,6 +155,9 @@
         <input id="photoCredit" type="text" maxlength="70" placeholder="例：Photo by Example / CC BY 4.0">
       </div>
       <p id="photoStatus" class="hint">写真を入れると現地写真モードが有効になり、3D地図が使えない場合も合成写真を保存できます。</p>
+      <button type="button" id="searchCommons" class="secondary wide">指定地点の近くの公開写真を探す <span aria-hidden="true">⌕</span></button>
+      <p class="hint" id="commonsStatus">Wikimedia Commonsの位置付き写真から、CC0・パブリックドメインと表示されたものを探します。使用前に各画像のファイルページで利用条件を確認してください。</p>
+      <div id="commonsResults" class="commons-gallery" aria-label="選択可能な周辺写真" hidden></div>
       <div class="scene-modes">
         <button type="button" id="mapMode" aria-pressed="true" class="selected">3D地図</button>
         <button type="button" id="photoMode" aria-pressed="false">現地写真</button>
