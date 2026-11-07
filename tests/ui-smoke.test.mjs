@@ -6,6 +6,7 @@ import * as location from "../src/location.mjs";
 import * as commons from "../src/commons.mjs";
 import * as compositor from "../src/compositor.mjs";
 import * as scenes from "../src/scenes.mjs";
+import * as panoramax from "../src/panoramax.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
@@ -88,9 +89,10 @@ function createUI(fetchOverride = null) {
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/commons\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/compositor\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/scenes\.mjs["'];/m, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/panoramax\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes)];
+  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes), ...Object.keys(panoramax)];
   const mockFetch = fetchOverride || (async url => ({
     ok: true,
     json: async () => url.includes("/api/health") ? { aiConfigured: false } : { configured: false, candidates: [] }
@@ -99,7 +101,7 @@ function createUI(fetchOverride = null) {
     this.name = name; this.type = options.type; this.size = files[0].size;
   };
   const app = new Function("document", "window", "URL", "console", "fetch", "File", ...params, withoutImport);
-  app(document, window, URL, { warn() {}, error() {} }, mockFetch, mockFile, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor), ...Object.values(scenes));
+  app(document, window, URL, { warn() {}, error() {} }, mockFetch, mockFile, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor), ...Object.values(scenes), ...Object.values(panoramax));
   return elements;
 }
 
@@ -287,4 +289,42 @@ test("unconfigured street-image API falls back without inventing a location view
   await e.findScenes.events.click();
   assert.match(e.sceneGroundingStatus.textContent, /確認できる実景画像はありません/);
   assert.equal(e.sceneResults.hidden, true);
+});
+
+
+test("public Panoramax street photo works without Mapillary token or ShareAlike if Etalab-2.0",async()=>{
+  const uuid="af0c80eb-5ce4-424d-9ac3-6accccbe68d4";
+  const candidate={
+    provider:"panoramax",id:uuid,lat:48.859870109,lon:2.29472254,
+    distanceM:12,cameraHeading:45.3,headingDifference:5,captureDate:"2025-07-21",
+    creator:"Paris photographer",assessment:"near-position-and-heading",imageType:"perspective",
+    imageUrl:"/api/panoramax-image?id="+uuid+"&size=thumb",
+    downloadUrl:"/api/panoramax-image?id="+uuid+"&size=sd",
+    viewerUrl:"https://api.panoramax.xyz/#focus=pic&pic="+uuid,
+    attribution:"Panoramax · Paris photographer · Etalab Open Licence 2.0",
+    license:"Etalab Open Licence 2.0",licenseSpdx:"etalab-2.0",
+    licenseUrl:"https://www.data.gouv.fr/pages/legal/licences/etalab-2-0",
+    requiresShareAlike:false,exactViewVerified:false
+  };
+  const e=createUI(async(url)=>{
+    if(url.startsWith("./api/scenes?"))return{ok:true,json:async()=>({configured:false,candidates:[]})};
+    if(url.startsWith("./api/panoramax-scenes?"))return{ok:true,json:async()=>({configured:true,candidates:[candidate]})};
+    if(url.startsWith("/api/panoramax-image?"))return{ok:true,blob:async()=>({type:"image/jpeg",size:13000})};
+    return{ok:true,json:async()=>({aiConfigured:false})};
+  });
+  e.subjectImage.onload();
+  await e.findScenes.events.click();
+  assert.equal(e.sceneResults.children.length,1);
+  assert.match(e.sceneResults.children[0].children[2].textContent,/Etalab/);
+  e.photoRights.checked=true;
+  // Etalab does not require a ShareAlike checkbox.
+  e.mapillaryShareAlike.checked=false;
+  await e.sceneResults.children[0].children[4].events.click();
+  e.locationPhoto.onload();
+  assert.equal(e.stage.dataset.mode,"photo");
+  assert.equal(e.shutter.disabled,false);
+  assert.match(e.photoCredit.value,/Etalab/);
+  await e.shutter.events.click();
+  assert.equal(e.__capture.downloads.length,1);
+  assert.ok(e.__capture.labels.some(label=>label.includes("api.panoramax.xyz")));
 });
