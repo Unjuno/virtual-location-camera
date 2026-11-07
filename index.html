@@ -107,7 +107,7 @@
       </div>
 
       <div class="stage-wrap">
-        <div id="stage" class="stage">
+        <div id="stage" class="stage" data-mode="map">
           <div id="map" aria-label="世界の3D地図"></div>
           <img id="locationPhoto" class="location-photo" alt="利用許諾のある現地参照写真" draggable="false" hidden>
           <div class="night-treatment" aria-hidden="true"></div>
@@ -150,6 +150,10 @@
       <label class="rights-label"><input type="checkbox" id="photoRights"> <span>現地写真を合成・保存する権利があることを確認しました</span></label>
       <label class="upload-control" for="photoUpload"><span>現地の背景写真を読み込む</span><strong>画像を選択 ⇧</strong></label>
       <input id="photoUpload" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      <div class="field">
+        <label for="photoCredit">背景写真の撮影者・出典（任意）</label>
+        <input id="photoCredit" type="text" maxlength="70" placeholder="例：Photo by Example / CC BY 4.0">
+      </div>
       <p id="photoStatus" class="hint">写真を入れると現地写真モードが有効になり、3D地図が使えない場合も合成写真を保存できます。</p>
       <div class="scene-modes">
         <button type="button" id="mapMode" aria-pressed="true" class="selected">3D地図</button>
