@@ -21,8 +21,16 @@ jobs:
         run: npm run check
       - name: Core, API and UI smoke tests
         run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Parse local model server
+        run: python -m compileall -q server tests/test_local_ai.py
+      - name: Test local model input validation without GPU
+        run: python -m unittest discover -s tests -p 'test_local_ai.py' -v
       - name: Static entrypoint checks
         run: |
           test -f index.html
           test -f src/app.mjs
           test -f api/render.js
+          test -f server/local_ai.py
