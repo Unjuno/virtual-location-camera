@@ -33,6 +33,9 @@ jobs:
           test -f index.html
           test -f src/app.mjs
           test -f src/compositor.mjs
+          test -f src/scenes.mjs
+          test -f api/scenes.js
+          test -f api/scene-image.js
           test -f api/render.js
           test -f server/local_ai.py
 
