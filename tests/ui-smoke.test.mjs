@@ -7,6 +7,7 @@ import * as commons from "../src/commons.mjs";
 import * as compositor from "../src/compositor.mjs";
 import * as scenes from "../src/scenes.mjs";
 import * as panoramax from "../src/panoramax.mjs";
+import { createDepthController } from "../src/depth-ui.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
@@ -50,7 +51,7 @@ function createUI(fetchOverride = null) {
   const fakeCtx = {
     filter: "none", fillStyle: "",
     save() {}, restore() {}, fillRect() {}, clearRect() {},
-    beginPath() {}, ellipse() {}, fill() {},
+    beginPath() {}, ellipse() {}, arc() {}, fill() {},
     createLinearGradient() { return { addColorStop() {} }; },
     drawImage(...args) { captured.drawCalls.push(args); },
     fillText(text) { captured.labels.push(text); }
@@ -58,6 +59,9 @@ function createUI(fetchOverride = null) {
   elements.photoCanvas.width = 1600;
   elements.photoCanvas.height = 900;
   elements.photoCanvas.getContext = () => fakeCtx;
+  elements.occlusionCanvas.width = 800;
+  elements.occlusionCanvas.height = 450;
+  elements.occlusionCanvas.getContext = () => fakeCtx;
   const document = {
     activeElement: { tagName: "BODY" },
     body: { appendChild() {} },
@@ -90,9 +94,10 @@ function createUI(fetchOverride = null) {
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/compositor\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/scenes\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/panoramax\.mjs["'];/m, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/depth-ui\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes), ...Object.keys(panoramax)];
+  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes), ...Object.keys(panoramax), "createDepthController"];
   const mockFetch = fetchOverride || (async url => ({
     ok: true,
     json: async () => url.includes("/api/health") ? { aiConfigured: false } : { configured: false, candidates: [] }
@@ -101,7 +106,7 @@ function createUI(fetchOverride = null) {
     this.name = name; this.type = options.type; this.size = files[0].size;
   };
   const app = new Function("document", "window", "URL", "console", "fetch", "File", ...params, withoutImport);
-  app(document, window, URL, { warn() {}, error() {} }, mockFetch, mockFile, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor), ...Object.values(scenes), ...Object.values(panoramax));
+  app(document, window, URL, { warn() {}, error() {} }, mockFetch, mockFile, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor), ...Object.values(scenes), ...Object.values(panoramax), createDepthController);
   return elements;
 }
 
@@ -327,4 +332,30 @@ test("public Panoramax street photo works without Mapillary token or ShareAlike 
   await e.shutter.events.click();
   assert.equal(e.__capture.downloads.length,1);
   assert.ok(e.__capture.labels.some(label=>label.includes("api.panoramax.xyz")));
+});
+
+
+test("manual foreground mask overlays the subject before copyright footer and resets",async()=>{
+  const e=createUI();
+  e.subjectImage.onload();
+  e.photoRights.checked=true;
+  e.photoUpload.events.change({target:{
+    files:[{type:"image/png",size:5000,name:"licensed-street.png"}],value:""
+  }});
+  e.locationPhoto.onload();
+  e.maskEditToggle.events.click();
+  assert.equal(e.occlusionCanvas.hidden,false);
+  assert.equal(e.maskEditToggle.getAttribute("aria-pressed"),"true");
+  e.occlusionCanvas.events.pointerdown({
+    button:0,pointerType:"mouse",pointerId:8,clientX:520,clientY:310,
+    preventDefault(){},stopPropagation(){}
+  });
+  e.occlusionCanvas.events.pointerup({pointerId:8});
+  await e.shutter.events.click();
+  assert.equal(e.__capture.downloads.length,1);
+  assert.ok(e.__capture.drawCalls.some(args=>args[0]===e.occlusionCanvas),
+    "Foreground mask is drawn over the person in saved PNG");
+  e.clearOcclusion.events.click();
+  assert.equal(e.occlusionCanvas.hidden,true);
+  assert.equal(e.maskEditToggle.getAttribute("aria-pressed"),"false");
 });
