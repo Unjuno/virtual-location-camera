@@ -8,10 +8,12 @@ import scenes from '../api/scenes.js';
 import sceneImage from '../api/scene-image.js';
 import panoramaxScenes from '../api/panoramax-scenes.js';
 import panoramaxImage from '../api/panoramax-image.js';
+import depthHealth from '../api/depth-health.js';
+import depthApi from '../api/depth.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 8000);
-const allowed = new Set(['/', '/index.html', '/styles.css', '/src/app.mjs', '/src/core.mjs', '/src/location.mjs', '/src/commons.mjs', '/src/compositor.mjs', '/src/scenes.mjs', '/src/panoramax.mjs', '/favicon.ico']);
+const allowed = new Set(['/', '/index.html', '/styles.css', '/src/app.mjs', '/src/core.mjs', '/src/location.mjs', '/src/commons.mjs', '/src/compositor.mjs', '/src/scenes.mjs', '/src/panoramax.mjs', '/src/depth.mjs', '/src/depth-ui.mjs', '/favicon.ico']);
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8' };
 
 // Simple local .env loader, without any dependencies. Production uses runtime env vars.
@@ -32,6 +34,8 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/scene-image') return sceneImage(req, res);
     if (path === '/api/panoramax-scenes') return panoramaxScenes(req, res);
     if (path === '/api/panoramax-image') return panoramaxImage(req, res);
+    if (path === '/api/depth-health') return depthHealth(req, res);
+    if (path === '/api/depth') return depthApi(req, res);
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405); return res.end('Method not allowed');
     }
