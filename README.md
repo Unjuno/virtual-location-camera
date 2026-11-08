@@ -141,6 +141,9 @@ python server/local_ai.py
 
 **D:** 深度を有効化すると被写体より手前の背景色が出力され、反転またはクリアすると被写体色が再表示されることをPASSとします。実モデル重みの推論実行、深度の計測誤差、人間が評価する合成品質は別途検証が必要です。
 
+**実行結果（2026-11-08）：** [GitHub Actions CI #124](https://github.com/Unjuno/virtual-location-camera/actions/runs/42430916285) でNode.js単体74件（73件PASS・任意ライブ1件スキップ）、Python/Pillow 13件PASS、Chromium実ブラウザ5件PASSを確認しました。白い深度PNGで赤い被写体が青い背景に隠れ、深度を反転すると再び赤く見え、手動マスクでも隠せることを実際の保存PNG画素で検証しています。Hugging Faceの本番モデル重みの実GPU推論は未検証です。
+
+
 ## 写真合成の品質調整（今回追加）
 
 地図・実景写真のどちらでも、次の操作を使えます。
