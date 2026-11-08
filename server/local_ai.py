@@ -40,6 +40,7 @@ ALLOWED_PATHS = {
     "/src/scenes.mjs": ROOT / "src" / "scenes.mjs",
     "/src/panoramax.mjs": ROOT / "src" / "panoramax.mjs",
     "/src/depth.mjs": ROOT / "src" / "depth.mjs",
+    "/src/depth-ui.mjs": ROOT / "src" / "depth-ui.mjs",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                  ".css": "text/css; charset=utf-8",
