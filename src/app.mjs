@@ -13,6 +13,7 @@ import {
 } from "./compositor.mjs";
 import { normalizeHeading } from "./scenes.mjs";
 import { validPanoramaxId } from "./panoramax.mjs";
+import { createDepthController } from "./depth-ui.mjs";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
@@ -36,6 +37,7 @@ let photoFile = null;
 let photoSourcePageUrl = null;
 let selectedSceneEvidence = null;
 let sceneSearchSequence = 0;
+let backgroundRevision = 0;
 
 function resetSceneEvidence() {
   selectedSceneEvidence = null;
@@ -89,6 +91,7 @@ function setBackgroundMode(mode) {
   $("mapState").textContent = mode === "photo" ? "実景写真モード / 合成撮影" : (mapLoaded ? "3D地図" : "地図に接続中");
   updateCaptureAvailability();
   if (mode === "photo") renderPhotoPreview();
+  else depthController.render();
 }
 
 function renderSceneBackground(ctx, width, height) {
@@ -127,6 +130,7 @@ function renderPhotoPreview() {
   }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   renderSceneBackground(ctx, canvas.width, canvas.height);
+  depthController.render();
 }
 
 function sourceAttribution() {
@@ -203,7 +207,10 @@ function updateStudioControl(id, key, divisor, outputSuffix) {
   const value = Number($(id).value);
   studio = studioSettings({ ...studio, [key]: value / divisor });
   $(id + "Value").textContent = outputSuffix(value);
-  if (id === "photoZoom" || id === "photoFocusX" || id === "photoFocusY") renderPhotoPreview();
+  if (id === "photoZoom" || id === "photoFocusX" || id === "photoFocusY") {
+    depthController.reset("背景の切り取りを変更したため前景マスクを解除しました。");
+    renderPhotoPreview();
+  }
   updateSubjectAppearance();
 }
 
@@ -503,6 +510,7 @@ async function takePhoto() {
     renderSceneBackground(ctx, CAPTURE.width, CAPTURE.height);
 
     drawSubjectWithShadow(ctx, actorImg, placement, CAPTURE.width, CAPTURE.height, studio);
+    depthController.drawOverSubject(ctx, CAPTURE.width, CAPTURE.height);
 
     // Explicit synthetic disclosure and correct per-source attribution in pixels.
     const hasStreetLicense = ["mapillary","panoramax"].includes(selectedSceneEvidence?.provider);
@@ -556,6 +564,7 @@ function exportScene() {
       photoFocusY: studio.photoFocusY,
       exposure
     };
+    snapshot.occlusion = depthController.snapshot();
     snapshot.compositing = {
       subjectExposure: studio.subjectExposure,
       subjectWarmth: studio.subjectWarmth,
@@ -589,6 +598,7 @@ async function importScene(event) {
       throw new Error("撮影条件のカメラ設定が不正です。");
     }
     placement = normalizePlacement(scene.subject);
+    depthController.reset("前景マスクはJSONに含まれません。深度PNGを再読み込みするか塗り直してください。");
     const bg = scene.background && typeof scene.background === "object" ? scene.background : {};
     const comp = scene.compositing && typeof scene.compositing === "object" ? scene.compositing : {};
     studio = studioSettings({
@@ -679,6 +689,8 @@ function installLocationPhoto(file, credit = "", sourcePage = null, evidence = n
     photoFile = file;
     photoSourcePageUrl = sourcePage;
     photoLoaded = true;
+    backgroundRevision++;
+    depthController.reset("写真を切り替えたため前景マスクを解除しました。");
     selectedSceneEvidence = evidence ? { ...evidence, exactViewVerified: false } : null;
     if (evidence) {
       $("sceneSelected").hidden = false;
@@ -734,6 +746,8 @@ function clearLocationPhoto() {
   photoObjectUrl = null;
   photoFile = null;
   photoSourcePageUrl = null;
+  backgroundRevision++;
+  depthController.reset("背景画像を解除したため前景マスクも解除しました。");
   resetSceneEvidence();
   photoLoaded = false;
   $("photoCredit").value = "";
@@ -1100,6 +1114,17 @@ function initializeUI() {
   updateCameraOutputs();
 }
 
+const depthController = createDepthController({
+  dom: document,
+  photoActive,
+  drawBackground: renderSceneBackground,
+  notice,
+  rightsAllowed: () => $("photoRights").checked,
+  photoRevision: () => backgroundRevision,
+  cropKey: () => [studio.photoZoom, studio.photoFocusX, studio.photoFocusY].join(":"),
+  fetcher: (...args) => fetch(...args)
+});
+
 initializeUI();
 
 // 05 / Generative photography. The scene and upload images are processed in
@@ -1185,6 +1210,7 @@ async function generateAIPhoto() {
         background, subject, reference,
         placement: normalizePlacement(placement),
         compositing: studio,
+        occlusionMask: depthController.maskDataURL(),
         subjectType: $("aiSubjectKind").value,
         description: $("artDirection").value.slice(0, 600),
         acceptRights: true
@@ -1261,6 +1287,7 @@ function initializeAIUI() {
 }
 
 initializeAIUI();
+depthController.init();
 checkAIReady();
 
 connectWorld();
