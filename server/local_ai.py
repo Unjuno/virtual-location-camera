@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("VLC_PORT", "8000"))
 MODEL_ID = os.environ.get("VLC_MODEL_ID", "stable-diffusion-v1-5/stable-diffusion-v1-5")
+DEPTH_MODEL_ID = "depth-anything/Depth-Anything-V2-Small-hf"
 ALLOW_CPU = os.environ.get("VLC_ALLOW_CPU", "") == "1"
 OUTPUT_SIZE = (768, 432)
 MAX_BODY_BYTES = 4_100_000
@@ -38,6 +39,7 @@ ALLOWED_PATHS = {
     "/src/compositor.mjs": ROOT / "src" / "compositor.mjs",
     "/src/scenes.mjs": ROOT / "src" / "scenes.mjs",
     "/src/panoramax.mjs": ROOT / "src" / "panoramax.mjs",
+    "/src/depth.mjs": ROOT / "src" / "depth.mjs",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                  ".css": "text/css; charset=utf-8",
@@ -146,6 +148,71 @@ def parse_request(payload: object) -> dict:
         "compositing": parse_compositing(payload.get("compositing")),
     }
 
+
+
+
+def parse_depth_request(payload: object) -> bytes:
+    """Validate explicitly authorized background, without importing ML libs."""
+    if not isinstance(payload, dict):
+        raise RequestError("リクエストの形式が不正です。")
+    if payload.get("acceptRights") is not True:
+        raise RequestError("現地写真の利用権とローカル推論への同意が必要です。")
+    return decode_image_url(payload.get("image"), "深度推定の背景画像")
+
+
+def get_depth_backend_state() -> tuple[bool, str, str]:
+    """Detect local depth inference separately from optional diffusion models."""
+    try:
+        import torch
+        import transformers  # noqa: F401
+        from PIL import Image  # noqa: F401
+        if torch.cuda.is_available():
+            return True, "cuda", ""
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return True, "mps", ""
+        if ALLOW_CPU:
+            return True, "cpu", "CPU推論は遅い場合があります。"
+        return False, "unavailable", "CUDA/MPS GPUが必要です。CPU実験はVLC_ALLOW_CPU=1を指定してください。"
+    except ImportError:
+        return False, "missing", "深度推定にはtorch、transformers、Pillowが必要です。"
+
+
+@lru_cache(maxsize=1)
+def load_depth_pipeline():
+    from transformers import pipeline
+    ready, device, message = get_depth_backend_state()
+    if not ready:
+        raise RequestError(message, status=503)
+    # For the 24.8M parameter Apache-2.0 model; weights downloaded on first
+    # use from Hugging Face Hub, then run on local CUDA / MPS / CPU.
+    pipe = pipeline(task="depth-estimation", model=DEPTH_MODEL_ID, device=device)
+    return pipe, device
+
+
+def render_depth(image_bytes: bytes) -> dict:
+    """Infer *relative* monocular depth, not calibrated distance in metres."""
+    from PIL import Image, ImageOps
+    source = open_image(image_bytes).convert("RGB")
+    source = ImageOps.fit(source, OUTPUT_SIZE, method=Image.Resampling.LANCZOS)
+    pipe, device = load_depth_pipeline()
+    result = pipe(source)
+    gray = result["depth"].convert("L")
+    if gray.size != OUTPUT_SIZE:
+        gray = gray.resize(OUTPUT_SIZE, Image.Resampling.BILINEAR)
+    buf = io.BytesIO()
+    gray.save(buf, format="PNG")
+    return {
+        "model": DEPTH_MODEL_ID,
+        "relativeOnly": True,
+        "width": gray.width,
+        "height": gray.height,
+        "device": device,
+        # DepthAnything pipeline returns normalized grayscale; the UI offers
+        # explicit "invert" because sign and edges must be reviewed visually.
+        "nearIsBright": "assumed; user adjustable",
+        "depthMap": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii"),
+        "note": "相対深度です。物体境界・人物の前後・距離は実測値ではありません。"
+    }
 
 def get_backend_state() -> tuple[bool, str, str]:
     try:
@@ -323,6 +390,12 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.respond_json(503, {
                 "error": "Mapillary images require the separate Node/Vercel proxy."
             })
+        if path == "/api/depth-health":
+            ok, device, message = get_depth_backend_state()
+            return self.respond_json(200, {
+                "available": ok, "device": device, "message": message,
+                "model": DEPTH_MODEL_ID, "relativeOnly": True
+            })
         if path == "/api/health":
             ok, device, msg = get_backend_state()
             return self.respond_json(200, {
@@ -348,7 +421,8 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed_origin():
             return self.respond_json(403, {"error": "接続元が許可されていません。"})
-        if urlsplit(self.path).path != "/api/render":
+        endpoint = urlsplit(self.path).path
+        if endpoint not in ("/api/render", "/api/depth"):
             return self.respond_json(404, {"error": "Not found"})
         try:
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
@@ -360,12 +434,13 @@ class AppHandler(BaseHTTPRequestHandler):
             if size <= 0 or size > MAX_BODY_BYTES:
                 raise RequestError("リクエストサイズが不正です。", 413)
             raw = self.rfile.read(size)
-            payload = parse_request(json.loads(raw.decode("utf8")))
+            user_input = json.loads(raw.decode("utf8"))
+            payload = parse_request(user_input) if endpoint == "/api/render" else parse_depth_request(user_input)
             # No overlapping GPU jobs: prevent RAM/VRAM exhaustion.
             if not GPU_LOCK.acquire(blocking=False):
                 raise RequestError("別の生成処理が実行中です。終了後に再試行してください。", 429)
             try:
-                result = render_scene(payload)
+                result = render_scene(payload) if endpoint == "/api/render" else render_depth(payload)
             finally:
                 GPU_LOCK.release()
             return self.respond_json(200, result)
@@ -377,7 +452,7 @@ class AppHandler(BaseHTTPRequestHandler):
             # Do not leak local paths, tokens, or other internal error details.
             self.log_error("AI render failed: %s", type(exc).__name__)
             return self.respond_json(500, {
-                "error": "ローカルモデルでの生成に失敗しました。端末側のGPUメモリとログを確認してください。"
+                "error": "ローカルモデル推論に失敗しました。端末側のGPU・CPUメモリとログを確認してください。"
             })
 
 
