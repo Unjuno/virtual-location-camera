@@ -213,6 +213,7 @@
       <label class="rights-label"><input type="checkbox" id="depthConsent"> <span>画像の利用権を確認し、背景画像をローカルの深度モデルで処理することに同意します。</span></label>
       <button type="button" id="depthInfer" class="secondary wide" disabled>Depth Anything V2で奥行き推定</button>
       <p id="depthStatus" class="hint" role="status">AI深度推定はローカルGPU環境のみ。前景ブラシは無料Web版でも使用できます。</p>
+      <canvas id="depthPreview" width="256" height="144" class="depth-preview" hidden aria-label="推定した相対深度のプレビュー"></canvas>
       <label class="rights-label"><input id="depthEnabled" type="checkbox" disabled> <span>推定した奥行きによる自動遮蔽を適用</span></label>
       <div class="field slider-field">
         <div class="field-top"><label for="depthThreshold">人物より手前と判定する深度</label><output id="depthThresholdValue" for="depthThreshold">65%</output></div>
