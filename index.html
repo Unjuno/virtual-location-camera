@@ -142,6 +142,7 @@
             <img id="subjectImage" alt="被写体のプレビュー" draggable="false">
             <div class="subject-outline" aria-hidden="true"></div>
           </div>
+          <canvas id="occlusionCanvas" class="occlusion-layer" width="800" height="450" hidden aria-label="写真の手前にある建物や街路設備の遮蔽レイヤー"></canvas>
           <div id="aiResult" class="ai-result" hidden>
             <img id="aiResultImage" alt="生成AIによる合成写真。現地撮影写真ではありません。">
             <div class="ai-result-top"><span>AI GENERATED / NOT ON LOCATION</span><button type="button" id="editAgain" class="secondary">編集に戻る</button></div>
@@ -199,8 +200,44 @@
       </div>
       <p class="hint">写真の見切れを調整できます。生成AIによる架空の街並み補完ではなく、元写真のトリミングのみです。</p>
       <div class="section-divider"></div>
+      <div class="panel-head compact">
+        <span class="kicker">06 / DEPTH + OCCLUSION</span>
+        <h2>奥行き・前景の遮蔽</h2>
+        <p>建物・手すりなど、人物より手前にある部分を背景写真から重ね直します。深度マップは実際の距離ではありません。</p>
+      </div>
+      <label class="upload-control" for="depthUpload">
+        <span>深度マップを読み込む</span><strong>PNG ⇧</strong>
+      </label>
+      <input id="depthUpload" type="file" accept="image/png" hidden>
+      <p class="hint">深度マップは16:9のグレースケール画像。白を手前と仮定しますが、必要に応じて反転してください。</p>
+      <label class="rights-label"><input type="checkbox" id="depthConsent"> <span>画像の利用権を確認し、背景画像をローカルの深度モデルで処理することに同意します。</span></label>
+      <button type="button" id="depthInfer" class="secondary wide" disabled>Depth Anything V2で奥行き推定</button>
+      <p id="depthStatus" class="hint" role="status">AI深度推定はローカルGPU環境のみ。前景ブラシは無料Web版でも使用できます。</p>
+      <label class="rights-label"><input id="depthEnabled" type="checkbox" disabled> <span>推定した奥行きによる自動遮蔽を適用</span></label>
+      <div class="field slider-field">
+        <div class="field-top"><label for="depthThreshold">人物より手前と判定する深度</label><output id="depthThresholdValue" for="depthThreshold">65%</output></div>
+        <input id="depthThreshold" type="range" min="0" max="100" step="1" value="65" disabled>
+      </div>
+      <label class="rights-label"><input id="depthInvert" type="checkbox"> <span>深度を反転（黒側を手前として判定）</span></label>
+      <button type="button" id="maskEditToggle" class="secondary wide" aria-pressed="false">前景ブラシを開始</button>
+      <div class="field-pair">
+        <div class="field">
+          <label for="maskBrushMode">ブラシの操作</label>
+          <select id="maskBrushMode">
+            <option value="foreground">背景を人物の前に</option>
+            <option value="erase">前景の指定を消す</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="maskBrushRadius">ブラシ半径</label>
+          <input id="maskBrushRadius" type="range" min="5" max="70" value="22" step="1">
+        </div>
+      </div>
+      <button type="button" id="clearOcclusion" class="secondary wide">前景マスク・深度を初期化</button>
+      <p class="hint">写真の上で塗ると、その部分を人物より手前へ出せます。編集時は人物のドラッグ操作を停止します。マスク自体は画像としてJSONへ保存されません。</p>
+      <div class="section-divider"></div>
       <div class="panel-head">
-        <span class="kicker">06 / SUBJECT</span>
+        <span class="kicker">07 / SUBJECT</span>
         <h2>被写体</h2>
         <p>人物・商品の画像をシーンの前面に配置します。</p>
       </div>
@@ -245,7 +282,7 @@
 
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">07 / CAPTURE</span>
+        <span class="kicker">08 / CAPTURE</span>
         <h2>シャッター</h2>
       </div>
       <div class="capture-details">
@@ -260,7 +297,7 @@
       <p class="hint">3D地図の2D合成は無料で利用できます。生成写真では被写体や街並みの細部が変わる場合があります。</p>
       <div class="section-divider"></div>
       <div class="panel-head compact">
-        <span class="kicker">08 / OPTIONAL LOCAL AI</span>
+        <span class="kicker">09 / OPTIONAL LOCAL AI</span>
         <h2>Hugging Faceで写真化</h2>
         <p>公開モデルをローカルGPU上で実行し、地図・参照写真を写真風に変換。元の人物・商品画像は上から再合成して保持します。</p>
       </div>
