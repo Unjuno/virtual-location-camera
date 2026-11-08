@@ -296,6 +296,97 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             context.close()
 
 
+
+    def test_manual_and_relative_depth_restore_nearby_street_pixels(self):
+        """Real Chromium: foreground depth mask has priority over the subject.
+
+        No GPU/online images are needed: background, actor and depth are
+        synthetic fixtures generated inside the browser.
+        """
+        context=self.browser.new_context(
+            accept_downloads=True,viewport={"width":1500,"height":1050}
+        )
+        page=context.new_page()
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            images=page.evaluate("""() => {
+              const create=(w,h,colour) => {
+                const canvas=document.createElement('canvas');
+                canvas.width=w;canvas.height=h;
+                const ctx=canvas.getContext('2d');
+                ctx.fillStyle=colour;ctx.fillRect(0,0,w,h);
+                return canvas.toDataURL('image/png');
+              };
+              return {
+                background:create(800,450,'#223e60'),
+                actor:create(150,300,'#ed2b30'),
+                depth:create(800,450,'#ffffff')
+              };
+            }""")
+            def binary(name):
+                return base64.b64decode(images[name].split(",",1)[1])
+            page.locator("#photoRights").check()
+            page.locator("#photoUpload").set_input_files({
+                "name":"blue-background.png","mimeType":"image/png",
+                "buffer":binary("background")
+            })
+            page.wait_for_function("() => document.querySelector('#stage').dataset.mode==='photo'")
+            page.locator("#imageUpload").set_input_files({
+                "name":"red-subject.png","mimeType":"image/png",
+                "buffer":binary("actor")
+            })
+            page.wait_for_function("() => !document.querySelector('#shutter').disabled")
+
+            async_pixel = """async ({src,x,y}) => {
+              const img=new Image(); img.src=src; await img.decode();
+              const canvas=document.createElement('canvas');
+              canvas.width=img.width;canvas.height=img.height;
+              const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+              return Array.from(ctx.getImageData(x,y,1,1).data);
+            }"""
+            def shoot_rgb():
+                with page.expect_download(timeout=15000) as req:
+                    page.locator("#shutter").click()
+                with tempfile.TemporaryDirectory() as folder:
+                    output=Path(folder)/"capture.png"
+                    req.value.save_as(output)
+                    src="data:image/png;base64,"+base64.b64encode(output.read_bytes()).decode()
+                return page.evaluate(async_pixel, {"src":src,"x":832,"y":495})
+
+            before=shoot_rgb()
+            self.assertGreater(before[0],150,"subject should be red before masking")
+            self.assertLess(before[2],120,"subject should not have blue background pixels")
+
+            page.locator("#depthUpload").set_input_files({
+                "name":"all-near.png","mimeType":"image/png",
+                "buffer":binary("depth")
+            })
+            page.wait_for_function("() => document.querySelector('#depthEnabled').checked")
+            self.assertFalse(page.locator("#depthPreview").is_hidden())
+            hidden=shoot_rgb()
+            self.assertLess(hidden[0],70)
+            self.assertGreater(hidden[2],60)
+            self.assertLess(hidden[2],130)
+
+            page.locator("#depthInvert").check()
+            visible=shoot_rgb()
+            self.assertGreater(visible[0],150)
+
+            page.locator("#clearOcclusion").click()
+            page.locator("#maskEditToggle").click()
+            self.assertEqual(page.locator("#maskEditToggle").get_attribute("aria-pressed"),"true")
+            stage=page.locator("#occlusionCanvas")
+            box=stage.bounding_box()
+            stage.click(position={"x":box["width"]*0.52,"y":box["height"]*0.55})
+            brush=shoot_rgb()
+            self.assertLess(brush[0],70)
+            self.assertGreater(brush[2],60)
+            self.assertEqual(page.locator("#depthEnabled").is_checked(),False)
+        finally:
+            context.close()
+
+
     def test_live_geospatial_map_initialization(self):
         """Network test: verify real CDN + OpenFreeMap style and 3D map startup.
 
