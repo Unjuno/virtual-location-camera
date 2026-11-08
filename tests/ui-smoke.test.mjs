@@ -20,7 +20,8 @@ function createUI(fetchOverride = null) {
     elements[id] = {
       value: ({
         preset: "times-square", latitude: "40.7580", longitude: "-73.9855",
-        zoom: "16.8", pitch: "68", bearing: "-19", subjectScale: "21", exposure: "100"
+        zoom: "16.8", pitch: "68", bearing: "-19", subjectScale: "21", exposure: "100",
+        maskBrushRadius: "22", maskBrushMode: "foreground", depthThreshold: "65"
       })[id] ?? "",
       style: { setProperty(name, value) { this[name] = value; } },
       dataset: {},
