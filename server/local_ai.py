@@ -146,6 +146,8 @@ def parse_request(payload: object) -> dict:
         "description": description.strip(),
         "subjectType": subject_type,
         "compositing": parse_compositing(payload.get("compositing")),
+        "occlusion": decode_image_url(payload["occlusionMask"], "前景マスク")
+            if payload.get("occlusionMask") else None,
     }
 
 
@@ -285,6 +287,10 @@ def render_scene(data: dict) -> dict:
             num_inference_steps=24,
             generator=generator,
         ).images[0].convert("RGBA")
+    # Keep the generated background before composing the foreground subject.
+    # The mask then restores that SAME background where scenery must be closer,
+    # without mixing old street pixels with the newly generated street texture.
+    generated_background = output.copy()
     # Preserve user image pixels instead of asking the model to regenerate
     # the person's face or product identity. Relighting is an approximation,
     # not a physically accurate estimate of the real street's light field.
@@ -334,6 +340,10 @@ def render_scene(data: dict) -> dict:
     subject_layer = Image.new("RGBA", OUTPUT_SIZE, (0, 0, 0, 0))
     subject_layer.paste(foreground, (x, y))
     output = Image.alpha_composite(output, subject_layer)
+    if data.get("occlusion"):
+        occlusion = open_image(data["occlusion"]).getchannel("A")
+        occlusion = occlusion.resize(OUTPUT_SIZE, Image.Resampling.BILINEAR)
+        output = Image.composite(generated_background, output, occlusion)
     buf = io.BytesIO()
     output.convert("RGB").save(buf, format="WEBP", quality=90)
     encoded = base64.b64encode(buf.getvalue()).decode("ascii")
@@ -345,6 +355,7 @@ def render_scene(data: dict) -> dict:
         "location": {"lat": data["lat"], "lon": data["lon"]},
         "output": {"width": OUTPUT_SIZE[0], "height": OUTPUT_SIZE[1], "format": "webp"},
         "referenceMode": "reference-photo" if data["reference"] else "geospatial-map",
+        "relativeDepthMaskApplied": bool(data.get("occlusion")),
         "notice": "AI生成画像です。地理的忠実性や現地撮影の事実は保証されません。",
     }
 
