@@ -19,6 +19,8 @@
 | Mapillaryの撮影位置・方向つき実景探索 | トークン設定時に対応 | 現時点では非対応 |
 | 現地写真＋人物の合成（地図通信不要） | 対応 | 対応 |
 | 明るさ・暖色補正・接地影・写真トリミング | 対応 | 対応 |
+| 手動ブラシ・深度PNGによる前景遮蔽 | 対応 | 対応 |
+| Depth Anything V2 Smallによるローカル深度推定 | 非対応 | 対応（実機GPU未検証） |
 | 人物/商品画像アップロード・配置 | 対応 | 対応 |
 | PNG 1600×900 合成撮影 | 対応 | 対応 |
 | シーンJSON保存/読込 | 対応 | 対応 |
@@ -102,6 +104,42 @@ Google Mapsの公式 Maps URLs はAPIキーなしで使えますが、Google Map
 - 検索結果の写真URLはWikimedia Commons APIに基づいています。Google Mapsのスクリーンショットや画像の抽出・保存は一切していません。
 
 Wikimediaの検索APIと各画像のライセンスは別です。[Commonsの位置検索](https://commons.wikimedia.org/wiki/Commons:Search_by_location)と[Wikimediaのライセンス説明](https://attribution.wikimedia.org/attribution-signals/license.html)を参照してください。
+
+## 前景の遮蔽と相対奥行き（Depth + Occlusion）
+
+建物の柱、街路の手すり、植木などを**人物の手前**に配置するために、オリジナルの実景画像を合成後の人物の上へ戻す機能を追加しました。
+
+1. 地点を選択し、利用権のある背景写真を取り込み、人物・商品を配置する。
+2. 「奥行き・前景の遮蔽」の「前景ブラシを開始」から、人物より前に見せるべき物体を写真上で塗る。ブラシの「前景の指定を消す」で解除可能。
+3. プレビューと「写真を保存」の両方に前景指定が反映される。**Web版ではAIモデルやAPIキーは不要**。
+4. さらに自動化する場合は、Hugging Face [depth-anything/Depth-Anything-V2-Small-hf](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf) の相対深度モデルをローカル推論する（以下）。
+5. モデルが予測した奥行きPNGを自動取り込みし、閾値・白黒反転・手動ブラシで誤判定を補正する。**深度PNGを事前に作成して、Web版に読み込むこともできます**。
+
+### ローカル深度推定（外部API送信なし）
+
+Python 3.11/3.12、CUDAまたはApple Silicon MPSのGPU（または低速なCPU実験モード）を使います。既存の画像生成用Pythonサーバーに \`GET /api/depth-health\` と \`POST /api/depth\` を追加しました。従来の \`/api/render\` と同じく127.0.0.1へバインドするため、公開インターネットには直接公開しないでください。
+
+\`\`\`bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-ai.txt
+python server/local_ai.py
+\`\`\`
+
+初回だけ公開モデルの重みをHugging Faceから取得し、その後はローカルGPUで深度を推論します。画像の利用権とローカル推論への同意が必要です。
+
+- Depth Anything V2 **Small** のライセンスはApache 2.0です。Base/Largeなど別サイズの重みには異なる非商用ライセンスがあるため、同一視しないでください。
+- 深度画像は**相対奥行き**であり、メートル単位の距離、壁・道路の正確な位置、3Dメッシュではありません。白を近距離とみなす初期設定は、元モデルの出力やシーンによって誤る場合があります。必ずプレビューで確認し、反転・手動修正してください。
+- 深度を推定した後に背景の写真やトリミング範囲を変更すると、マスクの位置がずれるため自動解除します。
+- 合成写真のPNGには前景の見え方が**焼き込まれます**。シーンJSONにはマスクの画素データを含めないため、復元後は深度PNGを再読み込み・再編集してください。
+- ローカルDiffusers画像生成では、生成後の背景から近い領域を再び人物の手前に合成します。実景画像を別の背景にそのまま重ねず、**生成された同一背景の画素**を利用します。
+- ただし、照明・物体の幾何学的一致、カメラを動かした場合の未知の景色、複数視点間の一貫性は保証しません。
+
+### 検証条件
+
+**T:** Node標準ランナーで深度閾値・反転・マスクRGBAをユニットテスト、Python/PillowでモデルモックからPNG生成と遮蔽合成を確認します。GitHub Actions上のChromiumでは外部通信を遮断し、合成用背景・赤い被写体・相対深度PNGを人工生成して画素色を比較します。
+
+**D:** 深度を有効化すると被写体より手前の背景色が出力され、反転またはクリアすると被写体色が再表示されることをPASSとします。実モデル重みの推論実行、深度の計測誤差、人間が評価する合成品質は別途検証が必要です。
 
 ## 写真合成の品質調整（今回追加）
 
@@ -224,6 +262,9 @@ Python 3.11+ 127.0.0.1:8000
 - `src/core.mjs`：カメラ・配置計算
 - `src/location.mjs`：Google Maps地点URL解析、公式リンク、実景写真の中心クロップ計算
 - `src/scenes.mjs`：WGS84上の距離・方位差・撮影位置を付与した街路画像候補の並べ替え
+- `src/depth.mjs`：相対深度からの前景アルファマスク計算
+- `src/depth-ui.mjs`：ブラウザの前景ペイント・深度推定UI
+- `api/depth.js` / `api/depth-health.js`：Web公開版ではGPU推論を無効化するAPI
 - `api/scenes.js`：Mapillaryトークンをサーバー側に保持する街路画像検索API
 - `api/scene-image.js`：許可したCDNの画像だけを扱うストリート写真プロキシ
 - `src/compositor.mjs`：明るさ・接地影の計算とCanvas合成
