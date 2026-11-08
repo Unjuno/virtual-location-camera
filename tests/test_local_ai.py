@@ -107,6 +107,95 @@ class LocalModelTests(unittest.TestCase):
             with self.subTest(candidate=candidate), self.assertRaises(module.RequestError):
                 module.parse_request(body(compositing=candidate))
 
+
+    def test_depth_request_requires_rights_and_valid_image_header(self):
+        parsed = module.parse_depth_request({
+            "acceptRights": True, "image": PNG_DATA
+        })
+        self.assertEqual(parsed, PNG_BYTES)
+        for item in [
+            {"acceptRights": False, "image": PNG_DATA},
+            {"acceptRights": True, "image": "data:image/jpeg;base64,AA=="},
+            {"acceptRights": True, "image": "https://untrusted.example/scene.jpg"},
+            {}
+        ]:
+            with self.subTest(input=item), self.assertRaises(module.RequestError):
+                module.parse_depth_request(item)
+
+    def test_depth_backend_probe_requires_local_model_libraries(self):
+        from builtins import __import__ as real_import
+        def reject_transformers(name, *args, **kwargs):
+            if name == "transformers":
+                raise ImportError()
+            return real_import(name, *args, **kwargs)
+        with patch("builtins.__import__", side_effect=reject_transformers):
+            ready, device, message = module.get_depth_backend_state()
+        self.assertFalse(ready)
+        self.assertEqual(device, "missing")
+
+    def test_depth_png_from_mocked_model_is_grayscale_and_relative(self):
+        import io
+        from PIL import Image, ImageOps
+        src = Image.new("RGB", (160, 90), (125, 80, 20))
+        encoded = io.BytesIO()
+        src.save(encoded, format="PNG")
+        fake_pipe = lambda photo: {"depth": ImageOps.grayscale(photo)}
+        with patch.object(module, "load_depth_pipeline", return_value=(fake_pipe, "cpu")):
+            result = module.render_depth(encoded.getvalue())
+        self.assertEqual(result["model"], module.DEPTH_MODEL_ID)
+        self.assertTrue(result["relativeOnly"])
+        self.assertEqual((result["width"], result["height"]), module.OUTPUT_SIZE)
+        self.assertTrue(result["depthMap"].startswith("data:image/png;base64,"))
+        depth = Image.open(io.BytesIO(base64.b64decode(result["depthMap"].split(",",1)[1])))
+        self.assertEqual(depth.mode, "L")
+        self.assertEqual(depth.size, module.OUTPUT_SIZE)
+
+    def test_local_diffusion_uses_same_generated_street_pixels_for_occlusion(self):
+        import io
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        from PIL import Image, ImageDraw
+
+        def png_bytes(img):
+            stream = io.BytesIO()
+            img.save(stream, format="PNG")
+            return stream.getvalue()
+
+        background = png_bytes(Image.new("RGBA",(160,90),(35,60,80,255)))
+        subject = png_bytes(Image.new("RGBA",(100,100),(235,35,35,255)))
+        mask = Image.new("RGBA",(800,450),(255,255,255,0))
+        ImageDraw.Draw(mask).rectangle((370,195,430,255),fill=(255,255,255,255))
+        mask_bytes = png_bytes(mask)
+
+        class Seed:
+            def manual_seed(self, unused):
+                return self
+
+        fake_torch = SimpleNamespace(inference_mode=lambda: nullcontext(),
+            Generator=lambda device="cpu": Seed())
+        def fake_pipe(**unused):
+            return SimpleNamespace(images=[Image.new("RGB",module.OUTPUT_SIZE,(25,50,80))])
+
+        payload={
+            "lat":40.758,"lon":-73.9855,
+            "background":background,"reference":None,"subject":subject,
+            "placement":{"x":0.5,"y":0.5,"widthRatio":0.2},
+            "compositing":module.parse_compositing({"contactShadow":0}),
+            "description":"","subjectType":"person","occlusion":None
+        }
+        with patch.object(module,"load_pipeline",return_value=(fake_pipe,"cpu",fake_torch)):
+            clear=module.render_scene(payload)
+            obscured=module.render_scene({**payload,"occlusion":mask_bytes})
+        clear_img=Image.open(io.BytesIO(base64.b64decode(clear["image"].split(",",1)[1])))
+        obscured_img=Image.open(io.BytesIO(base64.b64decode(obscured["image"].split(",",1)[1])))
+        midpoint=(module.OUTPUT_SIZE[0]//2,module.OUTPUT_SIZE[1]//2)
+        plain=clear_img.getpixel(midpoint)
+        front=obscured_img.getpixel(midpoint)
+        self.assertGreater(plain[0]-front[0],100)
+        self.assertAlmostEqual(front[0],25,delta=12)
+        self.assertFalse(clear["relativeDepthMaskApplied"])
+        self.assertTrue(obscured["relativeDepthMaskApplied"])
+
     def test_listener_rejects_external_host(self):
         # Test origin/host safety directly without binding to the network.
         handler = object.__new__(module.AppHandler)
