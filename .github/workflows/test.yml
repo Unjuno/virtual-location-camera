@@ -44,6 +44,10 @@ jobs:
           test -f src/panoramax.mjs
           test -f api/panoramax-scenes.js
           test -f api/panoramax-image.js
+          test -f src/depth.mjs
+          test -f src/depth-ui.mjs
+          test -f api/depth.js
+          test -f api/depth-health.js
           test -f api/render.js
           test -f server/local_ai.py
 
