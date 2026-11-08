@@ -30,8 +30,11 @@ export function createDepthController({
   let mask = null;
   let modelAvailable = false;
   let busy = false;
+  let inferenceRevision = 0;
 
   function reset(message = "") {
+    // A manual clear or photo replacement must invalidate an in-flight result.
+    inferenceRevision++;
     options = occlusionOptions();
     strokes = [];
     depthPicture = null;
@@ -219,6 +222,7 @@ export function createDepthController({
     $("depthStatus").textContent = "ローカルのDepth Anything V2を実行しています。初回はモデルをダウンロードします。";
     const revision = photoRevision();
     const currentCrop = cropKey();
+    const runningInference = ++inferenceRevision;
     try {
       const source = dom.createElement("canvas");
       source.width = 768; source.height = 432;
@@ -234,7 +238,8 @@ export function createDepthController({
       const output = await response.json();
       if (!response.ok) throw Error(output.error || "深度推定に失敗しました。");
       if (!depthResponseLooksValid(output)) throw Error("深度モデルの応答形式が不正です。");
-      if (!photoActive() || revision !== photoRevision() || currentCrop !== cropKey()) {
+      if (!photoActive() || revision !== photoRevision()
+        || currentCrop !== cropKey() || runningInference !== inferenceRevision) {
         throw Error("深度推定中に背景の写真や構図が変更されました。再推定してください。");
       }
       await readDepthImage(output.depthMap, "ai");
