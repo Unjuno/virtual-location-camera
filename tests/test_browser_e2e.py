@@ -400,6 +400,8 @@ class BrowserPhotoE2ETest(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror",lambda error:errors.append(str(error)))
+        page.on("console",lambda msg:errors.append("console: "+msg.text) if msg.type == "error" else None)
+        page.on("requestfailed",lambda req:errors.append("fetch: "+req.url[:220]+" "+str(req.failure)))
         try:
             page.goto(BASE_URL + "/",wait_until="domcontentloaded")
             source = page.evaluate("""() => {
@@ -432,6 +434,7 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             state = page.locator("#cutoutStatus").inner_text()
             self.assertIn("切り抜きました",state,
                 "MediaPipe runtime/model failed: " + state
+                + " message=" + page.locator("#message").inner_text()
                 + " errors=" + repr(errors[-10:]))
             self.assertFalse(page.locator("#restorePerson").is_disabled())
             self.assertTrue(page.locator("#subjectImage").get_attribute("src").startswith("data:image/png;base64,"))
