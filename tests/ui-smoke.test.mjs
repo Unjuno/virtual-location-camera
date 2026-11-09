@@ -360,3 +360,19 @@ test("manual foreground mask overlays the subject before copyright footer and re
   assert.equal(e.occlusionCanvas.hidden,true);
   assert.equal(e.maskEditToggle.getAttribute("aria-pressed"),"false");
 });
+
+
+test("ordinary portrait upload enables optional on-device cutout without breaking product mode",()=>{
+  const e=createUI();
+  assert.equal(e.cutoutPerson.disabled,true);
+  e.imageUpload.events.change({
+    target:{files:[{type:"image/jpeg",size:12000,name:"my-selfie.jpg"}],value:"uploaded"}
+  });
+  assert.equal(e.cutoutPerson.disabled,false);
+  assert.equal(e.restorePerson.disabled,true);
+  assert.match(e.cutoutStatus.textContent,/人物写真/);
+  e.sampleProduct.events.click();
+  assert.equal(e.cutoutPerson.disabled,true);
+  assert.equal(e.restorePerson.disabled,true);
+  assert.equal(e.aiSubjectKind.value,"product");
+});
