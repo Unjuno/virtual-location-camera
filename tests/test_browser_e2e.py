@@ -389,6 +389,59 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             context.close()
 
 
+    @unittest.skipUnless(os.environ.get("TEST_CUTOUT_LIVE") == "1", "Optional live MediaPipe WASM/CDN test")
+    def test_person_cutout_with_live_mediapipe_model(self):
+        """Real browser model inference: no paid API or image upload to server.
+
+        Only an internally generated cartoon portrait is used. This verifies
+        API compatibility and alpha PNG creation, not human-mask accuracy.
+        """
+        context = self.browser.new_context(accept_downloads=True,viewport={"width":1440,"height":1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror",lambda error:errors.append(str(error)))
+        try:
+            page.goto(BASE_URL + "/",wait_until="domcontentloaded")
+            source = page.evaluate("""() => {
+              const c=document.createElement('canvas');c.width=512;c.height=720;
+              const x=c.getContext('2d');
+              x.fillStyle='#a5c6d8';x.fillRect(0,0,512,720);
+              x.fillStyle='#3d404c';x.fillRect(90,560,320,140);
+              x.fillStyle='#324f84';x.beginPath();x.ellipse(256,470,170,230,0,0,Math.PI*2);x.fill();
+              x.fillStyle='#cea58c';x.beginPath();x.ellipse(256,215,97,137,0,0,Math.PI*2);x.fill();
+              x.fillStyle='#26252b';x.beginPath();x.ellipse(256,118,101,60,0,0,Math.PI*2);x.fill();
+              return c.toDataURL('image/png');
+            }""")
+            img = base64.b64decode(source.split(",",1)[1])
+            page.locator("#imageUpload").set_input_files({
+                "name":"synthetic-selfie.png","mimeType":"image/png","buffer":img
+            })
+            page.wait_for_function("() => !document.querySelector('#cutoutPerson').disabled")
+            page.locator("#cutoutPerson").click()
+            try:
+                page.wait_for_function("""() => {
+                  const text=document.querySelector('#cutoutStatus').textContent;
+                  return text.includes('切り抜きました') || text.includes('失敗しました');
+                }""",timeout=75000)
+            except Exception as exc:
+                raise AssertionError(
+                    "MediaPipe segmentation did not settle: "
+                    + page.locator("#cutoutStatus").inner_text()
+                    + " errors=" + repr(errors[-10:])
+                ) from exc
+            state = page.locator("#cutoutStatus").inner_text()
+            self.assertIn("切り抜きました",state,
+                "MediaPipe runtime/model failed: " + state
+                + " errors=" + repr(errors[-10:]))
+            self.assertFalse(page.locator("#restorePerson").is_disabled())
+            self.assertTrue(page.locator("#subjectImage").get_attribute("src").startswith("data:image/png;base64,"))
+            page.locator("#restorePerson").click()
+            self.assertTrue(page.locator("#restorePerson").is_disabled())
+            self.assertIn("元のアップロード写真",page.locator("#cutoutStatus").inner_text())
+        finally:
+            context.close()
+
+
     def test_live_geospatial_map_initialization(self):
         """Network test: verify real CDN + OpenFreeMap style and 3D map startup.
 
