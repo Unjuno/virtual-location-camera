@@ -83,9 +83,16 @@ test("runtime is pinned, offline inference uses MediaPipe CPU and a user-selecte
 
 test("portrait model response shape is validated rather than trusting unexpected API output",async()=>{
   await assert.rejects(segmentPerson({naturalWidth:400,naturalHeight:800},{
-    documentObject:{createElement(){return{width:0,height:0,getContext(){return{
-      drawImage(){},save(){},restore(){}
-    }};}}},
+    documentObject: {
+      createElement() {
+        return {
+          width:0,height:0,
+          getContext() {
+            return {drawImage(){},save(){},restore(){}};
+          }
+        };
+      }
+    },
     segmenterPromise:Promise.resolve({segment(){return{confidenceMasks:[]};}})
   }),/人物領域/);
 });
