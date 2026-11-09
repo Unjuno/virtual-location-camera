@@ -48,6 +48,7 @@ jobs:
           test -f api/panoramax-image.js
           test -f src/depth.mjs
           test -f src/depth-ui.mjs
+          test -f src/cutout.mjs
           test -f api/depth.js
           test -f api/depth-health.js
           test -f api/render.js
