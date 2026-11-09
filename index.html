@@ -255,7 +255,12 @@
         <span>自分の被写体画像を選ぶ</span><strong>アップロード ⇧</strong>
       </label>
       <input id="imageUpload" type="file" accept="image/png,image/jpeg,image/webp" hidden>
-      <p class="hint">推奨：背景透過PNGまたはWebP、15MB以下。画像はブラウザ内だけで処理します。</p>
+      <p class="hint">PNG・JPEG・WebP（15MB以下）。普通の人物写真もアップロードできます。</p>
+      <div class="cutout-actions">
+        <button type="button" id="cutoutPerson" class="secondary" disabled>人物の背景を自動で切り抜く</button>
+        <button type="button" id="restorePerson" class="secondary" disabled>元の写真に戻す</button>
+      </div>
+      <p id="cutoutStatus" class="hint" role="status">切り抜きは端末内で処理します。初回のみMediaPipeモデルとWebAssemblyのダウンロードが必要です。写真そのものは外部の生成APIへ送信しません。</p>
 
       <div class="section-divider"></div>
       <div class="field slider-field">
