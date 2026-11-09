@@ -442,6 +442,70 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             context.close()
 
 
+    @unittest.skipUnless(os.environ.get("TEST_PUBLIC_SITE") == "1", "Optional real production-site acceptance")
+    def test_production_panorama_photo_search_and_capture(self):
+        """Inspect real production deployment against a known public geotag.
+
+        Does not use any personal image, maps screenshot or paid image API.
+        """
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1440,"height":1000})
+        page=context.new_page()
+        errors=[]
+        page.on("pageerror",lambda error:errors.append(str(error)))
+        try:
+            page.goto("https://virtual-location-camera.vercel.app/",wait_until="domcontentloaded",timeout=30000)
+            self.assertTrue(page.locator("#findScenes").count()>0)
+            self.assertTrue(page.locator("#depthEnabled").count()>0)
+            page.locator("#latitude").fill("48.859870109")
+            page.locator("#longitude").fill("2.29472254")
+            page.locator("#bearing").evaluate(
+                "(el) => {el.value='45';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            page.locator("#sceneRadius").select_option("200")
+            page.locator("#findScenes").click()
+            try:
+                page.wait_for_function(
+                    "() => document.querySelector('#sceneResults').children.length > 0 || document.querySelector('#sceneGroundingStatus').textContent.includes('失敗') || document.querySelector('#sceneGroundingStatus').textContent.includes('ありません')",
+                    timeout=45000
+                )
+            except Exception as exc:
+                raise AssertionError("Production scene search did not resolve. Status="
+                    +page.locator("#sceneGroundingStatus").inner_text()
+                    +" errors="+repr(errors[-12:])) from exc
+            candidates=page.locator("#sceneResults .scene-card")
+            self.assertGreater(candidates.count(),0,
+                "No live Paris Panoramax photo in production. Status="
+                +page.locator("#sceneGroundingStatus").inner_text()
+                +" errors="+repr(errors[-12:]))
+            # Select a photo explicitly marked with licence terms.
+            licenced=page.locator("#sceneResults .scene-card").filter(has_text="Etalab")
+            if licenced.count()==0:
+                licenced=page.locator("#sceneResults .scene-card").filter(has_text="CC BY-SA")
+            self.assertGreater(licenced.count(),0,"Production results lack licence metadata")
+            page.locator("#photoRights").check()
+            if "CC BY-SA" in licenced.first.inner_text():
+                page.locator("#mapillaryShareAlike").check()
+            licenced.first.locator("button").click()
+            try:
+                page.wait_for_function("() => document.querySelector('#stage').dataset.mode==='photo'",
+                    timeout=30000)
+            except Exception as exc:
+                raise AssertionError("Production location photo download failed: "
+                    +page.locator("#sceneGroundingStatus").inner_text()
+                    +" errors="+repr(errors[-12:])) from exc
+            self.assertFalse(page.locator("#shutter").is_disabled())
+            with page.expect_download(timeout=20000) as dl:
+                page.locator("#shutter").click()
+            with tempfile.TemporaryDirectory() as temp:
+                path=Path(temp)/"export.png"
+                dl.value.save_as(path)
+                png=path.read_bytes()
+                self.assertEqual(png[:8],b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(struct.unpack(">II",png[16:24]),(1600,900))
+        finally:
+            context.close()
+
+
     def test_live_geospatial_map_initialization(self):
         """Network test: verify real CDN + OpenFreeMap style and 3D map startup.
 
