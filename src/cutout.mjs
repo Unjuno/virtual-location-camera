@@ -90,7 +90,10 @@ export async function segmentPerson(sourceImage, {
 
   const segmentation = segmenter.segment(input);
   const masks = segmentation?.confidenceMasks;
-  const mask = masks?.[1];
+  // The SelfieSegmenter exposes ONE person-confidence mask in MediaPipe
+  // Tasks (confirmed by the live Chromium test). Multi-class models may
+  // return separate background/person channels instead.
+  const mask = masks?.length === 1 ? masks[0] : masks?.[1];
   if (!mask || typeof mask.getAsFloat32Array !== "function") {
     segmentation?.close?.();
     throw new Error("モデルが人物領域を判定できませんでした。");
