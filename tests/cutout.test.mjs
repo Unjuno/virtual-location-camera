@@ -37,7 +37,7 @@ test("runtime is pinned, offline inference uses MediaPipe CPU and a user-selecte
   let instances=0;
   const segmenter={
     segment(){
-      return {confidenceMasks:[{},{
+      return {confidenceMasks:[{
         width:2,height:2,getAsFloat32Array(){return new Float32Array([0,1,1,0]);}
       }],close(){}};
     }
