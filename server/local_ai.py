@@ -41,6 +41,7 @@ ALLOWED_PATHS = {
     "/src/panoramax.mjs": ROOT / "src" / "panoramax.mjs",
     "/src/depth.mjs": ROOT / "src" / "depth.mjs",
     "/src/depth-ui.mjs": ROOT / "src" / "depth-ui.mjs",
+    "/src/cutout.mjs": ROOT / "src" / "cutout.mjs",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                  ".css": "text/css; charset=utf-8",

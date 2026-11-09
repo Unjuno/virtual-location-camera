@@ -27,6 +27,9 @@ let mapIdle = false;
 let subjectType = "person";
 let placement = normalizePlacement();
 let lastObjectUrl = null;
+let originalUploadUrl = null;
+let subjectRevision = 0;
+let cutoutBusy = false;
 let exposure = 1;
 let dragging = null;
 let studio = studioSettings();
@@ -289,9 +292,57 @@ function setSubject(source, kind) {
   actorImg.src = source;
 }
 function useSample(kind) {
+  subjectRevision++;
+  originalUploadUrl = null;
+  $("cutoutPerson").disabled = true;
+  $("restorePerson").disabled = true;
+  $("cutoutStatus").textContent = "サンプル画像には切り抜きは不要です。自分の人物写真を読み込んでください。";
   if (lastObjectUrl) { URL.revokeObjectURL(lastObjectUrl); lastObjectUrl = null; }
   setSubject(dataSvg(kind === "person" ? personSvg() : productSvg()), kind);
   $("aiSubjectKind").value = kind;
+}
+
+async function removePersonBackground() {
+  if (!originalUploadUrl || cutoutBusy) {
+    notice("人物の写真をアップロードしてから実行してください。", true);
+    return;
+  }
+  const url = originalUploadUrl;
+  const revision = subjectRevision;
+  cutoutBusy = true;
+  $("cutoutPerson").disabled = true;
+  $("restorePerson").disabled = true;
+  $("cutoutStatus").textContent = "人物領域を端末内で推定しています。初回はモデルをダウンロードします。";
+  try {
+    const img = new Image();
+    img.src = url;
+    if (typeof img.decode === "function") await img.decode();
+    else await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("元画像を開けませんでした。"));
+    });
+    const { segmentPerson } = await import("./cutout.mjs");
+    const cutout = await segmentPerson(img);
+    if (revision !== subjectRevision || originalUploadUrl !== url) return;
+    setSubject(cutout, "uploaded");
+    $("restorePerson").disabled = false;
+    $("cutoutStatus").textContent = "人物の背景を切り抜きました。髪・手足・透明部分の境界を確認してください。";
+  } catch (error) {
+    if (revision !== subjectRevision) return;
+    $("cutoutStatus").textContent = "自動切り抜きに失敗しました。元の画像は保持しています。背景透過PNGも利用できます。";
+    notice("切り抜き失敗：" + error.message, true);
+  } finally {
+    cutoutBusy = false;
+    $("cutoutPerson").disabled = !originalUploadUrl;
+  }
+}
+
+function restorePersonOriginal() {
+  if (!originalUploadUrl) return;
+  subjectRevision++;
+  setSubject(originalUploadUrl, "uploaded");
+  $("restorePerson").disabled = true;
+  $("cutoutStatus").textContent = "元のアップロード写真に戻しました。";
 }
 
 function loadPreset(id) {
@@ -1051,11 +1102,18 @@ function initializeUI() {
       return;
     }
     const url = URL.createObjectURL(file);
+    subjectRevision++;
+    originalUploadUrl = url;
     if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
     lastObjectUrl = url;
+    $("cutoutPerson").disabled = false;
+    $("restorePerson").disabled = true;
+    $("cutoutStatus").textContent = "人物写真なら「背景を自動で切り抜く」を押せます。商品や透過PNGならそのまま使用してください。";
     setSubject(url, "uploaded");
     event.target.value = "";
   });
+  $("cutoutPerson").addEventListener("click", removePersonBackground);
+  $("restorePerson").addEventListener("click", restorePersonOriginal);
   $("subjectScale").addEventListener("input", event => {
     placement.widthRatio = Number(event.target.value) / 100;
     setPosition();

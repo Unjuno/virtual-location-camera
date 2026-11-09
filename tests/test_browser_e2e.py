@@ -100,6 +100,8 @@ class BrowserPhotoE2ETest(unittest.TestCase):
                 "buffer": subject
             })
             page.wait_for_function("!document.querySelector('#shutter').disabled")
+            self.assertFalse(page.locator("#cutoutPerson").is_disabled())
+            self.assertTrue(page.locator("#restorePerson").is_disabled())
 
             for field, value in [
                 ("photoZoom", "140"),
@@ -383,6 +385,126 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             self.assertLess(brush[0],70)
             self.assertGreater(brush[2],60)
             self.assertEqual(page.locator("#depthEnabled").is_checked(),False)
+        finally:
+            context.close()
+
+
+    @unittest.skipUnless(os.environ.get("TEST_CUTOUT_LIVE") == "1", "Optional live MediaPipe WASM/CDN test")
+    def test_person_cutout_with_live_mediapipe_model(self):
+        """Real browser model inference: no paid API or image upload to server.
+
+        Only an internally generated cartoon portrait is used. This verifies
+        API compatibility and alpha PNG creation, not human-mask accuracy.
+        """
+        context = self.browser.new_context(accept_downloads=True,viewport={"width":1440,"height":1000})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror",lambda error:errors.append(str(error)))
+        page.on("console",lambda msg:errors.append("console: "+msg.text) if msg.type == "error" else None)
+        page.on("requestfailed",lambda req:errors.append("fetch: "+req.url[:220]+" "+str(req.failure)))
+        try:
+            page.goto(BASE_URL + "/",wait_until="domcontentloaded")
+            source = page.evaluate("""() => {
+              const c=document.createElement('canvas');c.width=512;c.height=720;
+              const x=c.getContext('2d');
+              x.fillStyle='#a5c6d8';x.fillRect(0,0,512,720);
+              x.fillStyle='#3d404c';x.fillRect(90,560,320,140);
+              x.fillStyle='#324f84';x.beginPath();x.ellipse(256,470,170,230,0,0,Math.PI*2);x.fill();
+              x.fillStyle='#cea58c';x.beginPath();x.ellipse(256,215,97,137,0,0,Math.PI*2);x.fill();
+              x.fillStyle='#26252b';x.beginPath();x.ellipse(256,118,101,60,0,0,Math.PI*2);x.fill();
+              return c.toDataURL('image/png');
+            }""")
+            img = base64.b64decode(source.split(",",1)[1])
+            page.locator("#imageUpload").set_input_files({
+                "name":"synthetic-selfie.png","mimeType":"image/png","buffer":img
+            })
+            page.wait_for_function("() => !document.querySelector('#cutoutPerson').disabled")
+            page.locator("#cutoutPerson").click()
+            try:
+                page.wait_for_function("""() => {
+                  const text=document.querySelector('#cutoutStatus').textContent;
+                  return text.includes('切り抜きました') || text.includes('失敗しました');
+                }""",timeout=75000)
+            except Exception as exc:
+                raise AssertionError(
+                    "MediaPipe segmentation did not settle: "
+                    + page.locator("#cutoutStatus").inner_text()
+                    + " errors=" + repr(errors[-10:])
+                ) from exc
+            state = page.locator("#cutoutStatus").inner_text()
+            self.assertIn("切り抜きました",state,
+                "MediaPipe runtime/model failed: " + state
+                + " message=" + page.locator("#message").inner_text()
+                + " errors=" + repr(errors[-10:]))
+            self.assertFalse(page.locator("#restorePerson").is_disabled())
+            self.assertTrue(page.locator("#subjectImage").get_attribute("src").startswith("data:image/png;base64,"))
+            page.locator("#restorePerson").click()
+            self.assertTrue(page.locator("#restorePerson").is_disabled())
+            self.assertIn("元のアップロード写真",page.locator("#cutoutStatus").inner_text())
+        finally:
+            context.close()
+
+
+    @unittest.skipUnless(os.environ.get("TEST_PUBLIC_SITE") == "1", "Optional real production-site acceptance")
+    def test_production_panorama_photo_search_and_capture(self):
+        """Inspect real production deployment against a known public geotag.
+
+        Does not use any personal image, maps screenshot or paid image API.
+        """
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1440,"height":1000})
+        page=context.new_page()
+        errors=[]
+        page.on("pageerror",lambda error:errors.append(str(error)))
+        try:
+            page.goto("https://virtual-location-camera.vercel.app/",wait_until="domcontentloaded",timeout=30000)
+            self.assertTrue(page.locator("#findScenes").count()>0)
+            self.assertTrue(page.locator("#depthEnabled").count()>0)
+            page.locator("#latitude").fill("48.859870109")
+            page.locator("#longitude").fill("2.29472254")
+            page.locator("#bearing").evaluate(
+                "(el) => {el.value='45';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            page.locator("#sceneRadius").select_option("200")
+            page.locator("#findScenes").click()
+            try:
+                page.wait_for_function(
+                    "() => document.querySelector('#sceneResults').children.length > 0 || document.querySelector('#sceneGroundingStatus').textContent.includes('失敗') || document.querySelector('#sceneGroundingStatus').textContent.includes('ありません')",
+                    timeout=45000
+                )
+            except Exception as exc:
+                raise AssertionError("Production scene search did not resolve. Status="
+                    +page.locator("#sceneGroundingStatus").inner_text()
+                    +" errors="+repr(errors[-12:])) from exc
+            candidates=page.locator("#sceneResults .scene-card")
+            self.assertGreater(candidates.count(),0,
+                "No live Paris Panoramax photo in production. Status="
+                +page.locator("#sceneGroundingStatus").inner_text()
+                +" errors="+repr(errors[-12:]))
+            # Select a photo explicitly marked with licence terms.
+            licenced=page.locator("#sceneResults .scene-card").filter(has_text="Etalab")
+            if licenced.count()==0:
+                licenced=page.locator("#sceneResults .scene-card").filter(has_text="CC BY-SA")
+            self.assertGreater(licenced.count(),0,"Production results lack licence metadata")
+            page.locator("#photoRights").check()
+            if "CC BY-SA" in licenced.first.inner_text():
+                page.locator("#mapillaryShareAlike").check()
+            licenced.first.locator("button").click()
+            try:
+                page.wait_for_function("() => document.querySelector('#stage').dataset.mode==='photo'",
+                    timeout=30000)
+            except Exception as exc:
+                raise AssertionError("Production location photo download failed: "
+                    +page.locator("#sceneGroundingStatus").inner_text()
+                    +" errors="+repr(errors[-12:])) from exc
+            self.assertFalse(page.locator("#shutter").is_disabled())
+            with page.expect_download(timeout=20000) as dl:
+                page.locator("#shutter").click()
+            with tempfile.TemporaryDirectory() as temp:
+                path=Path(temp)/"export.png"
+                dl.value.save_as(path)
+                png=path.read_bytes()
+                self.assertEqual(png[:8],b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(struct.unpack(">II",png[16:24]),(1600,900))
         finally:
             context.close()
 

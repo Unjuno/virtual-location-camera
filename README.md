@@ -144,6 +144,15 @@ python server/local_ai.py
 **実行結果（2026-11-08）：** [GitHub Actions CI #124](https://github.com/Unjuno/virtual-location-camera/actions/runs/42430916285) でNode.js単体74件（73件PASS・任意ライブ1件スキップ）、Python/Pillow 13件PASS、Chromium実ブラウザ5件PASSを確認しました。白い深度PNGで赤い被写体が青い背景に隠れ、深度を反転すると再び赤く見え、手動マスクでも隠せることを実際の保存PNG画素で検証しています。Hugging Faceの本番モデル重みの実GPU推論は未検証です。
 
 
+## 人物写真の背景を自動で削除（ブラウザ内AI）
+
+普通のJPEG/PNG/WebPの人物写真をアップロードした後、**「人物の背景を自動で切り抜く」**を押すと、MediaPipeの[Image Segmenter](https://developers.google.com/edge/mediapipe/solutions/vision/image_segmenter/web_js)がブラウザ内で人物領域を推定し、背景を透過したPNGに変換します。失敗した場合は元の写真を保持し、**「元の写真に戻す」**で戻せます。**人物画像を生成APIへアップロードすることはありません。**
+
+- モデル：GoogleのSelfieSegmenter（float16、256×256入力）、推論：MediaPipe Tasks Vision 1.2.2 / WebAssembly CPU。初回のみライブラリ・モデルファイルを公式配信先から取得します。
+- 高解像度の元画像は長辺1600px以下に縮小して切り抜きます。髪の毛、手指、全身写真、小さな人物、複数人物では失敗する場合があるため、結果を確認してください。
+- 商品・複雑形状の切り抜きには専用モデルを使っていません。商品の場合は背景透過PNGを推奨します。
+- SDKはApache 2.0ですが、同梱・配信モデルの利用条件は別途確認してください。MediaPipeの利用状況メトリクスについては[パッケージのプライバシー通知](https://www.npmjs.com/package/@mediapipe/tasks-vision)を確認してください。
+- ブラウザのCSPはMediaPipeのCDN、モデル配信ホストとWebAssemblyコンパイルのみを追加許可しています。処理に失敗しても通常の手動写真合成は利用できます。
 ## 写真合成の品質調整（今回追加）
 
 地図・実景写真のどちらでも、次の操作を使えます。
