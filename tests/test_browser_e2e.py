@@ -100,6 +100,8 @@ class BrowserPhotoE2ETest(unittest.TestCase):
                 "buffer": subject
             })
             page.wait_for_function("!document.querySelector('#shutter').disabled")
+            self.assertFalse(page.locator("#cutoutPerson").is_disabled())
+            self.assertTrue(page.locator("#restorePerson").is_disabled())
 
             for field, value in [
                 ("photoZoom", "140"),
