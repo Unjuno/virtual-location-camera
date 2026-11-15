@@ -509,6 +509,91 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             context.close()
 
 
+    def test_real_360_panorama_camera_rotates_and_exports_observed_colours(self):
+        """Real WebGL ray-cast of a 2:1 panorama; never a fabricated street view.
+
+        Source image has four directional colour sectors. A 90-degree yaw MUST
+        change the exported pixel from centre red to right-side blue.
+        """
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1500,"height":1000})
+        page=context.new_page()
+        errors=[]
+        page.on("pageerror",lambda e:errors.append(str(e)))
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            source=page.evaluate("""() => {
+              const pano=document.createElement('canvas');pano.width=2048;pano.height=1024;
+              const g=pano.getContext('2d');
+              for (const [x,w,c] of [
+                [0,256,'#822399'],[256,512,'#15b73b'],
+                [768,512,'#de1829'],[1280,512,'#1623db'],[1792,256,'#822399']
+              ]){g.fillStyle=c;g.fillRect(x,0,w,1024);}
+              return pano.toDataURL('image/png');
+            }""")
+            png=base64.b64decode(source.split(",",1)[1])
+            page.locator("#photoRights").check()
+            page.locator("#photoUpload").set_input_files({
+              "name":"user-provided-360.png","mimeType":"image/png","buffer":png
+            })
+            page.wait_for_function("() => document.querySelector('#stage').dataset.mode === 'photo'")
+            self.assertFalse(page.locator("#panoramaToggle").is_disabled())
+            page.locator("#subjectScale").evaluate(
+              "(el) => {el.value='6';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            page.locator("#panoramaToggle").check()
+            page.wait_for_function("() => document.querySelector('#stage').dataset.panorama === 'true'")
+            self.assertFalse(page.locator("#shutter").is_disabled())
+
+            def output_pixel():
+                with page.expect_download(timeout=15000) as download:
+                    page.locator("#shutter").click()
+                with tempfile.TemporaryDirectory() as root:
+                    path=Path(root)/"photo.png"
+                    download.value.save_as(path)
+                    image_bytes=path.read_bytes()
+                    self.assertEqual(image_bytes[:8],b"\x89PNG\r\n\x1a\n")
+                    self.assertEqual(struct.unpack(">II",image_bytes[16:24]),(1600,900))
+                uri="data:image/png;base64,"+base64.b64encode(image_bytes).decode()
+                return page.evaluate("""async uri => {
+                  const image=new Image();
+                  image.src=uri; await image.decode();
+                  const scratch=document.createElement('canvas');
+                  scratch.width=image.width;scratch.height=image.height;
+                  const c=scratch.getContext('2d');
+                  c.drawImage(image,0,0);
+                  return Array.from(c.getImageData(800,260,1,1).data);
+                }""",uri)
+
+            before=output_pixel()
+            self.assertGreater(before[0],140,"Yaw=0 must use original red centre stripe")
+            self.assertLess(before[2],110)
+
+            page.locator("#panoramaYaw").evaluate(
+              "(el) => {el.value='90';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            after=output_pixel()
+            self.assertGreater(after[2],140,"Yaw=90 must use actual blue stripe at 3/4 longitude")
+            self.assertLess(after[0],100)
+            self.assertNotEqual(before[:3],after[:3])
+
+            with page.expect_download(timeout=15000) as scene_download:
+                page.locator("#sceneExport").click()
+            with tempfile.TemporaryDirectory() as temp:
+                path=Path(temp)/"scene.json"
+                scene_download.value.save_as(path)
+                state=json.loads(path.read_text("utf-8"))
+                self.assertEqual(state["background"]["panorama"]["enabled"],True)
+                self.assertEqual(state["background"]["panorama"]["yaw"],90)
+                self.assertTrue(state["background"]["panorama"]["fixedCameraPosition"])
+
+            page.locator("#panoramaToggle").uncheck()
+            self.assertEqual(page.locator("#stage").get_attribute("data-panorama"),"false")
+            self.assertFalse(page.locator("#photoZoom").is_disabled())
+        finally:
+            context.close()
+
+
     def test_live_geospatial_map_initialization(self):
         """Network test: verify real CDN + OpenFreeMap style and 3D map startup.
 
