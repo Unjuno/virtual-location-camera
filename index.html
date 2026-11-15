@@ -150,6 +150,7 @@
             <img id="subjectImage" alt="被写体のプレビュー" draggable="false">
             <div class="subject-outline" aria-hidden="true"></div>
           </div>
+          <canvas id="worldCanvas" class="world-layer" width="960" height="540" hidden aria-label="複数の実景から復元された3D点群と移動可能なカメラ"></canvas>
           <canvas id="occlusionCanvas" class="occlusion-layer" width="800" height="450" hidden aria-label="写真の手前にある建物や街路設備の遮蔽レイヤー"></canvas>
           <div id="aiResult" class="ai-result" hidden>
             <img id="aiResultImage" alt="生成AIによる合成写真。現地撮影写真ではありません。">
@@ -192,6 +193,7 @@
       <div class="scene-modes">
         <button type="button" id="mapMode" aria-pressed="true" class="selected">3D地図</button>
         <button type="button" id="photoMode" aria-pressed="false">現地写真</button>
+        <button type="button" id="worldMode" aria-pressed="false" disabled>復元3D</button>
       </div>
       <button id="clearPhoto" type="button" class="secondary wide" disabled>現地写真を解除</button>
       <div class="field slider-field">
@@ -231,6 +233,67 @@
         <button type="button" id="panoramaReset" class="secondary wide">360°カメラの向きをリセット</button>
       </div>
       <p id="panoramaStatus" class="hint" role="status">実際の2:1全天球画像を読み込むと使用できます。方向は写真中央を0°とする相対値です。正確な北方向は自動校正しません。</p>
+      <div class="section-divider"></div>
+      <div class="panel-head compact">
+        <span class="kicker">06 / MULTI-VIEW WORLD RECONSTRUCTION</span>
+        <h2>複数写真から3D世界を復元</h2>
+        <p>MapAnything（Apache 2.0版）が複数の実景写真から推定した3D点群を読み込みます。カメラを前後・左右・上下へ動かせます。写真に存在しない場所は補いません。</p>
+      </div>
+      <label class="rights-label"><input type="checkbox" id="worldRights">
+        <span>元写真の権利と出典を確認しました。3D復元データを合成に使用します。</span>
+      </label>
+      <label class="upload-control" for="worldUpload">
+        <span>復元した3D点群を読み込む（PLY）</span><strong>.ply ⇧</strong>
+      </label>
+      <input id="worldUpload" type="file" accept=".ply,application/octet-stream" hidden>
+      <div class="field">
+        <label for="worldCredit">元画像の撮影者・ライセンス・出典</label>
+        <input id="worldCredit" type="text" maxlength="100" placeholder="例：撮影者 / 原画像URL / ライセンス">
+      </div>
+      <button type="button" id="worldDemo" class="secondary wide">架空の3Dサンプルでカメラ移動を試す</button>
+      <p id="worldStatus" class="hint" role="status">実景を3D化するにはローカルGPUと、同じ地点を異なる角度から撮影した2〜12枚の画像が必要です。元のGPS位置と点群の厳密な整合は未検証です。</p>
+      <div id="worldControls" class="world-controls" hidden>
+        <p class="hint">左ドラッグ：視線回転 ／ W・S：前後 ／ A・D：左右 ／ Q・E：上下。3Dの人物はカメラ移動後も同じ世界座標に残ります。</p>
+        <div class="world-actions">
+          <button id="worldForward" class="secondary" type="button">前進</button>
+          <button id="worldBack" class="secondary" type="button">後退</button>
+          <button id="worldLeft" class="secondary" type="button">左へ</button>
+          <button id="worldRight" class="secondary" type="button">右へ</button>
+          <button id="worldUp" class="secondary" type="button">上へ</button>
+          <button id="worldDown" class="secondary" type="button">下へ</button>
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="worldYaw">3D視点の方位</label><output id="worldYawValue">0°</output></div>
+          <input id="worldYaw" type="range" min="-180" max="180" step="1" value="0">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="worldPitch">3D視点の上下角</label><output id="worldPitchValue">0°</output></div>
+          <input id="worldPitch" type="range" min="-75" max="75" step="1" value="0">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="worldFov">3Dカメラの画角</label><output id="worldFovValue">65°</output></div>
+          <input id="worldFov" type="range" min="35" max="105" step="1" value="65">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="worldActorX">3D人物の左右位置</label><output id="worldActorXValue">0.0</output></div>
+          <input id="worldActorX" type="range" min="-6" max="6" step="0.1" value="0">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="worldActorY">3D人物の高さ</label><output id="worldActorYValue">-0.5</output></div>
+          <input id="worldActorY" type="range" min="-6" max="6" step="0.1" value="-0.5">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="worldActorZ">3D人物の奥行き</label><output id="worldActorZValue">-3.5</output></div>
+          <input id="worldActorZ" type="range" min="-12" max="-0.5" step="0.1" value="-3.5">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="worldActorHeight">3D人物の身長（モデル単位）</label><output id="worldActorHeightValue">1.7</output></div>
+          <input id="worldActorHeight" type="range" min="0.3" max="3" step="0.1" value="1.7">
+        </div>
+        <button id="worldReset" type="button" class="secondary wide">3Dカメラ位置を初期化</button>
+        <button id="worldClear" type="button" class="secondary wide">3D世界を解除</button>
+      </div>
+      <p class="hint">この3D世界は観測点の点群です。空白部分・透明部分は地図と一致する保証がありません。ワールドモデルにGPSを厳密に登録する処理は未実装です。</p>
       <div class="section-divider"></div>
       <div class="panel-head compact">
         <span class="kicker">06 / DEPTH + OCCLUSION</span>
