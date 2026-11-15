@@ -90,6 +90,14 @@
       <div id="sceneResults" class="scene-gallery" aria-label="付近の街路画像と位置・方向データ" hidden></div>
       <label class="rights-label"><input type="checkbox" id="mapillaryShareAlike"> <span>CC BY-SA 4.0の街路写真は、原画像への帰属表示と改変作品の共有条件を守ります。Etalab 2.0の写真には出典表示が必要ですが、ShareAlike条件はありません。</span></label>
       <div id="sceneSelected" class="readonly-field" hidden><strong id="sceneSelectedTitle">選択中の現地画像</strong><small id="sceneSelectedDescription"></small><a id="sceneSelectedSource" target="_blank" rel="noopener noreferrer">元画像とライセンスを確認 ↗</a></div>
+      <div id="observedNavigation" class="observed-navigation" hidden>
+        <p id="observedNavigationStatus" class="hint">撮影済みの前後地点を確認しています。</p>
+        <div class="observed-navigation-buttons">
+          <button id="previousObserved" type="button" class="secondary" disabled>前の実写地点</button>
+          <button id="nextObserved" type="button" class="secondary" disabled>次の実写地点</button>
+        </div>
+        <p class="hint">同じ街路撮影シーケンス内の、実際に撮影された地点だけを表示します。画像がない区間は移動できません。</p>
+      </div>
 
       <div class="section-divider"></div>
       <div class="panel-head compact">
