@@ -201,6 +201,30 @@
       <p class="hint">写真の見切れを調整できます。生成AIによる架空の街並み補完ではなく、元写真のトリミングのみです。</p>
       <div class="section-divider"></div>
       <div class="panel-head compact">
+        <span class="kicker">06 / OBSERVED 360° CAMERA</span>
+        <h2>実景の360°カメラ</h2>
+        <p>同じ撮影地点の360°全天球画像なら、画像に実在する範囲で左右・上下にカメラを回せます。写真に存在しない別地点は生成しません。</p>
+      </div>
+      <label class="rights-label"><input type="checkbox" id="panoramaToggle" disabled>
+        <span>この写真を360°全天球として表示（横:縦 = 2:1の画像のみ）</span></label>
+      <div id="panoramaControls" class="panorama-controls" hidden>
+        <div class="field slider-field">
+          <div class="field-top"><label for="panoramaYaw">視線を左右に回転</label><output id="panoramaYawValue" for="panoramaYaw">0°</output></div>
+          <input id="panoramaYaw" type="range" min="-180" max="180" step="1" value="0">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="panoramaPitch">視線を上下に回転</label><output id="panoramaPitchValue" for="panoramaPitch">0°</output></div>
+          <input id="panoramaPitch" type="range" min="-65" max="65" step="1" value="0">
+        </div>
+        <div class="field slider-field">
+          <div class="field-top"><label for="panoramaFov">水平画角</label><output id="panoramaFovValue" for="panoramaFov">75°</output></div>
+          <input id="panoramaFov" type="range" min="35" max="110" step="1" value="75">
+        </div>
+        <button type="button" id="panoramaReset" class="secondary wide">360°カメラの向きをリセット</button>
+      </div>
+      <p id="panoramaStatus" class="hint" role="status">実際の2:1全天球画像を読み込むと使用できます。方向は写真中央を0°とする相対値です。正確な北方向は自動校正しません。</p>
+      <div class="section-divider"></div>
+      <div class="panel-head compact">
         <span class="kicker">06 / DEPTH + OCCLUSION</span>
         <h2>奥行き・前景の遮蔽</h2>
         <p>建物・手すりなど、人物より手前にある部分を背景写真から重ね直します。深度マップは実際の距離ではありません。</p>
