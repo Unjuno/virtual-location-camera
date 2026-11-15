@@ -675,6 +675,11 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             self.assertTrue(page.locator("#panoramaToggle").is_checked())
             self.assertFalse(page.locator("#panoramaControls").is_hidden())
             self.assertFalse(page.locator("#shutter").is_disabled())
+            # Move the test actor away from the sampled camera pixel. We want
+            # to test the observed background direction, not the actor colour.
+            page.locator("#subjectScale").evaluate(
+              "(el) => {el.value='6';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
             page.locator("#panoramaYaw").evaluate(
               "(el) => {el.value='90';el.dispatchEvent(new Event('input',{bubbles:true}));}"
             )
