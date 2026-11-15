@@ -14,6 +14,7 @@ import {
 import { normalizeHeading } from "./scenes.mjs";
 import { validPanoramaxId } from "./panoramax.mjs";
 import { createDepthController } from "./depth-ui.mjs";
+import { createWorldController } from "./world-ui.mjs";
 import {
   PanoramaProjector, normalizePanoramaView, isEquirectangularDimensions
 } from "./panorama.mjs";
@@ -163,14 +164,19 @@ function sceneSearchStale() {
 function photoActive() {
   return backgroundMode === "photo" && photoLoaded;
 }
+function worldActive() {
+  return backgroundMode === "world" && worldController.ready();
+}
 function subjectReady() {
   return Boolean(actorImg.complete && actorImg.naturalWidth > 0);
 }
 function canCapture() {
   const legalConfirmation = !selectedSceneEvidence?.requiresShareAlike || $("mapillaryShareAlike").checked;
-  const backgroundReady = photoActive()
-    ? $("photoRights").checked && legalConfirmation
-    : mapLoaded && mapIdle;
+  const backgroundReady = worldActive()
+    ? worldController.allowed()
+    : photoActive()
+      ? $("photoRights").checked && legalConfirmation
+      : mapLoaded && mapIdle;
   return subjectReady() && backgroundReady;
 }
 function updateCaptureAvailability() {
@@ -178,13 +184,19 @@ function updateCaptureAvailability() {
 }
 
 function setBackgroundMode(mode) {
-  if (mode !== "map" && mode !== "photo") throw new Error("不明な撮影モードです。");
+  if (mode !== "map" && mode !== "photo" && mode !== "world")
+    throw new Error("不明な撮影モードです。");
+  if (mode === "world" && !worldController.ready()) {
+    notice("先に復元3D点群を読み込んでください。",true);
+    return;
+  }
   if (mode === "photo" && !photoLoaded) {
     notice("先に利用許諾のある現地写真を読み込んでください。", true);
     return;
   }
   backgroundMode = mode;
   stage.dataset.mode = mode;
+  worldController.syncMode();
   $("locationPhoto").hidden = true;
   $("photoCanvas").hidden = mode !== "photo";
   syncPanoramaControls();
@@ -192,19 +204,31 @@ function setBackgroundMode(mode) {
   $("photoMode").classList.toggle("selected", mode === "photo");
   $("mapMode").setAttribute("aria-pressed", String(mode === "map"));
   $("photoMode").setAttribute("aria-pressed", String(mode === "photo"));
-  $("viewHelp").textContent = mode === "photo"
-    ? (panoramaActive()
-      ? "背景をドラッグして360°視線を回す ／ 人物をドラッグして配置 ／ 撮影位置は固定"
-      : "被写体をドラッグして配置 ／ 背景写真の撮影地点は自動更新されません")
-    : "被写体をドラッグして配置 ／ 背景をドラッグして視点変更";
-  $("sceneLabel").textContent = "SYNTHETIC COMPOSITE · NOT AN ON-SITE PHOTOGRAPH";
-  $("mapState").textContent = mode === "photo" ? "実景写真モード / 合成撮影" : (mapLoaded ? "3D地図" : "地図に接続中");
+  $("viewHelp").textContent = mode === "world"
+    ? "3D空間をドラッグで見回す ／ W,S,A,Dでカメラ移動 ／ 人物は世界座標に固定"
+    : mode === "photo"
+      ? (panoramaActive()
+        ? "背景をドラッグして360°視線を回す ／ 人物をドラッグして配置 ／ 撮影位置は固定"
+        : "被写体をドラッグして配置 ／ 背景写真の撮影地点は自動更新されません")
+      : "被写体をドラッグして配置 ／ 背景をドラッグして視点変更";
+  $("sceneLabel").textContent = mode === "world"
+    ? "ESTIMATED 3D POINT CLOUD · NOT A GEODETIC SURVEY"
+    : "SYNTHETIC COMPOSITE · NOT AN ON-SITE PHOTOGRAPH";
+  $("mapState").textContent = mode === "world"
+    ? "復元3D点群 / 地理座標は未校正"
+    : mode === "photo" ? "実景写真モード / 合成撮影"
+    : (mapLoaded ? "3D地図" : "地図に接続中");
   updateCaptureAvailability();
   if (mode === "photo") refreshPanorama();
-  else depthController.render();
+  else if (mode !== "world") depthController.render();
 }
 
 function renderSceneBackground(ctx, width, height) {
+  // World mode renders observed/predicted 3D positions, not 2D map pixels.
+  if(worldActive()){
+    worldController.exportTo(ctx,width,height);
+    return;
+  }
   // This draw operation owns the background pixels. A licensed photograph is
   // never loaded from Google Maps URLs, only from a user-selected local file.
   ctx.save();
@@ -249,7 +273,8 @@ function renderPhotoPreview() {
 }
 
 function sourceAttribution() {
-  return photoActive()
+  return worldActive() ? worldController.credit()
+    : photoActive()
     ? "Background: " + (String($("photoCredit").value || "").trim().replace(/[\r\n]/g, " ").slice(0, 70) || "user-supplied licensed photograph")
     : "Map © OpenFreeMap / OpenMapTiles / OpenStreetMap contributors";
 }
@@ -390,6 +415,7 @@ function setSubject(source, kind) {
   actorImg.onload = () => {
     actor.hidden = false;
     updateSubjectAppearance();
+    if(worldActive())worldController.renderPreview();
     updateCaptureAvailability();
     notice("被写体を読み込みました。ドラッグで配置できます。");
   };
@@ -662,7 +688,7 @@ async function takePhoto() {
   btn.disabled = true;
   notice("撮影データを合成しています…");
   try {
-    if (!photoActive()) await waitForMapIdle();
+    if (!photoActive() && !worldActive()) await waitForMapIdle();
     if (!canCapture()) throw new Error("背景と被写体の準備が完了していません。");
     const output = document.createElement("canvas");
     output.width = CAPTURE.width;
@@ -672,8 +698,10 @@ async function takePhoto() {
 
     renderSceneBackground(ctx, CAPTURE.width, CAPTURE.height);
 
-    drawSubjectWithShadow(ctx, actorImg, placement, CAPTURE.width, CAPTURE.height, studio);
-    depthController.drawOverSubject(ctx, CAPTURE.width, CAPTURE.height);
+    if(!worldActive()){
+      drawSubjectWithShadow(ctx, actorImg, placement, CAPTURE.width, CAPTURE.height, studio);
+      depthController.drawOverSubject(ctx, CAPTURE.width, CAPTURE.height);
+    } // In 3D, the subject was already drawn as a depth-tested world billboard.
 
     // Explicit synthetic disclosure and correct per-source attribution in pixels.
     const hasStreetLicense = ["mapillary","panoramax"].includes(selectedSceneEvidence?.provider);
@@ -717,7 +745,8 @@ function exportScene() {
   try {
     const snapshot = sceneSnapshot(currentCamera(), placement, subjectType);
     snapshot.background = {
-      mode: photoActive() ? "user-photo" : "map",
+      mode: worldActive() ? "reconstructed-world"
+        : photoActive() ? "user-photo" : "map",
       imageIncluded: false,
       locationVerified: false,
       filePage: photoActive() ? photoSourcePageUrl : null,
@@ -731,6 +760,7 @@ function exportScene() {
       exposure
     };
     snapshot.occlusion = depthController.snapshot();
+    snapshot.world = worldActive() ? worldController.snapshot() : null;
     snapshot.compositing = {
       subjectExposure: studio.subjectExposure,
       subjectWarmth: studio.subjectWarmth,
@@ -803,7 +833,16 @@ async function importScene(event) {
         refreshPanorama();
       }
       else notice("撮影条件を復元しました。背景写真はJSONに含まれないため、再度アップロードしてください。", true);
-    } else {
+    } else if(scene.background?.mode==="reconstructed-world"){
+      if(worldController.ready()){
+        setBackgroundMode("world");
+        worldController.restore(scene.world);
+        notice("3Dカメラ位置を復元しました。PLY点群はJSONには含まれません。");
+      }else{
+        setBackgroundMode("map");
+        notice("世界座標は読み込みましたがPLY点群はJSONに含まれません。3D点群を再読込してください。",true);
+      }
+    }else{
       setBackgroundMode("map");
       notice("撮影条件を復元しました。元画像ファイルはJSONに含まれません。");
     }
@@ -1325,6 +1364,7 @@ function initializeUI() {
   $("sceneImport").addEventListener("change", importScene);
 
   actor.addEventListener("pointerdown", event => {
+    if(worldActive())return;
     if (event.button !== 0 && event.pointerType === "mouse") return;
     event.preventDefault();
     event.stopPropagation();
@@ -1343,6 +1383,7 @@ function initializeUI() {
     actor.addEventListener(eventName, () => { dragging = null; });
   }
   document.addEventListener("keydown", event => {
+    if(worldActive())return;
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     if (/INPUT|TEXTAREA|SELECT|BUTTON/.test(document.activeElement?.tagName ?? "")) return;
     const d = event.shiftKey ? 0.025 : 0.01;
@@ -1363,6 +1404,15 @@ function initializeUI() {
   updateCameraOutputs();
 }
 
+const worldController = createWorldController({
+  dom:document,
+  actorImage:actorImg,
+  switchMode:setBackgroundMode,
+  currentMode:()=>backgroundMode,
+  notify:notice,
+  refreshCapture:updateCaptureAvailability
+});
+
 const depthController = createDepthController({
   dom: document,
   photoActive,
@@ -1375,6 +1425,7 @@ const depthController = createDepthController({
 });
 
 initializeUI();
+worldController.init();
 
 // 05 / Generative photography. The scene and upload images are processed in
 // memory. Local AI generation uses Hugging Face weights on the user's GPU.
@@ -1443,6 +1494,7 @@ async function generateAIPhoto() {
   button.textContent = "AIで写真を生成中…";
   updateAIStatus("ローカルGPUで推論しています。初回はモデルのダウンロードが必要です。");
   try {
+    if(worldActive())throw new Error("3D点群では直接PNG撮影を使用してください。ローカル拡散モデルの再生成は2D写真専用です。");
     if (!photoActive()) await waitForMapIdle();
     if (!canCapture()) throw new Error("画像と被写体の準備が完了していません。");
     const background = backgroundCanvasForAI().toDataURL("image/jpeg", 0.78);

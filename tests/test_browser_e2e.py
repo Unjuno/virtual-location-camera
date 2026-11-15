@@ -704,6 +704,109 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             context.close()
 
 
+    def test_imported_multiview_pointcloud_moves_camera_and_keeps_world_anchored_subject(self):
+        """Actual Chromium/WebGL image comparison, not a mocked world viewer.
+
+        Source PLY is a deterministic 3D green wall. The red human-like
+        sprite sits at a fixed world coordinate in FRONT of the wall, so the
+        camera changing x must move its projected position left on the frame.
+        """
+        import struct
+        import hashlib
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1500,"height":1000})
+        page=context.new_page()
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            points=[]
+            for row in range(-18,19):
+                for col in range(-35,36):
+                    points.append((col*.12,row*.12,-6.,80,190,120))
+            header=(
+                "ply\nformat binary_little_endian 1.0\n"
+                "comment first-camera-coordinates\n"
+                "element vertex "+str(len(points))+"\n"
+                "property float x\nproperty float y\nproperty float z\n"
+                "property uchar red\nproperty uchar green\nproperty uchar blue\n"
+                "end_header\n"
+            ).encode("ascii")
+            binary=header+b"".join(struct.pack("<fffBBB",*row) for row in points)
+            actor=page.evaluate("""() => {
+              const canvas=document.createElement('canvas');
+              canvas.width=180;canvas.height=360;
+              const ctx=canvas.getContext('2d');
+              ctx.clearRect(0,0,180,360);
+              ctx.fillStyle='#f21f2a';
+              ctx.fillRect(0,0,180,360);
+              return canvas.toDataURL('image/png');
+            }""")
+            page.locator("#imageUpload").set_input_files({
+                "name":"red-actor.png","mimeType":"image/png",
+                "buffer":base64.b64decode(actor.split(",",1)[1])
+            })
+            page.locator("#worldRights").check()
+            page.locator("#worldCredit").fill("Synthetic fixture / verified permission")
+            page.locator("#worldUpload").set_input_files({
+                "name":"observed-points.ply","mimeType":"application/octet-stream",
+                "buffer":binary
+            })
+            page.wait_for_function("() => document.querySelector('#stage').dataset.mode==='world'")
+            self.assertFalse(page.locator("#worldControls").is_hidden())
+            self.assertFalse(page.locator("#shutter").is_disabled())
+
+            def capture_red_centre():
+                with page.expect_download(timeout=15000) as download:
+                    page.locator("#shutter").click()
+                with tempfile.TemporaryDirectory() as folder:
+                    dst=Path(folder)/"captured.png"
+                    download.value.save_as(dst)
+                    body=dst.read_bytes()
+                    self.assertEqual(body[:8],b"\x89PNG\r\n\x1a\n")
+                    self.assertEqual(struct.unpack(">II",body[16:24]),(1600,900))
+                uri="data:image/png;base64,"+base64.b64encode(body).decode()
+                return page.evaluate("""async uri => {
+                    const image=new Image();image.src=uri;await image.decode();
+                    const c=document.createElement('canvas');c.width=1600;c.height=900;
+                    const ctx=c.getContext('2d');ctx.drawImage(image,0,0);
+                    const pixels=ctx.getImageData(0,0,1600,800).data;
+                    let count=0,sx=0;
+                    for(let y=30;y<800;y+=3)for(let x=0;x<1600;x+=3){
+                      const i=(y*1600+x)*4;
+                      if(pixels[i]>160&&pixels[i+1]<90&&pixels[i+2]<95){
+                        count++;sx+=x;
+                      }
+                    }
+                    return {count,center:count?sx/count:0};
+                }""",uri)
+
+            first=capture_red_centre()
+            self.assertGreater(first["count"],50,"world-anchored red actor must be visible")
+            page.locator("#worldRight").click()
+            second=capture_red_centre()
+            self.assertGreater(second["count"],50)
+            self.assertLess(second["center"],first["center"]-3,
+                "Moving the CAMERA right must project a fixed actor left")
+            page.locator("#worldForward").click()
+            self.assertIn("3Dカメラ",page.locator("#worldStatus").inner_text())
+            with page.expect_download(timeout=15000) as saved:
+                page.locator("#sceneExport").click()
+            with tempfile.TemporaryDirectory() as folder:
+                dst=Path(folder)/"scene.json"
+                saved.value.save_as(dst)
+                scene=json.loads(dst.read_text("utf-8"))
+                self.assertEqual(scene["background"]["mode"],"reconstructed-world")
+                self.assertEqual(scene["world"]["kind"],"multiview-reconstructed-pointcloud")
+                self.assertFalse(scene["world"]["geographicRegistrationVerified"])
+                self.assertFalse(scene["world"]["novelContentGenerated"])
+                self.assertGreater(scene["world"]["pointCount"],1000)
+                self.assertGreater(scene["world"]["camera"]["x"],0)
+                self.assertLess(scene["world"]["camera"]["z"],0)
+            page.locator("#worldClear").click()
+            self.assertEqual(page.locator("#stage").get_attribute("data-mode"),"map")
+        finally:
+            context.close()
+
+
     def test_real_360_panorama_camera_rotates_and_exports_observed_colours(self):
         """Real WebGL ray-cast of a 2:1 panorama; never a fabricated street view.
 
