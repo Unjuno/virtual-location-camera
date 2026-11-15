@@ -8,6 +8,7 @@ import scenes from '../api/scenes.js';
 import sceneImage from '../api/scene-image.js';
 import panoramaxScenes from '../api/panoramax-scenes.js';
 import panoramaxImage from '../api/panoramax-image.js';
+import panoramaxNeighbors from '../api/panoramax-neighbors.js';
 import depthHealth from '../api/depth-health.js';
 import depthApi from '../api/depth.js';
 
@@ -34,6 +35,7 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/scene-image') return sceneImage(req, res);
     if (path === '/api/panoramax-scenes') return panoramaxScenes(req, res);
     if (path === '/api/panoramax-image') return panoramaxImage(req, res);
+    if (path === '/api/panoramax-neighbors') return panoramaxNeighbors(req, res);
     if (path === '/api/depth-health') return depthHealth(req, res);
     if (path === '/api/depth') return depthApi(req, res);
     if (req.method !== 'GET' && req.method !== 'HEAD') {
