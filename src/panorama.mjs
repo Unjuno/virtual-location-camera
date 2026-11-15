@@ -33,11 +33,15 @@ const FRAGMENT_SHADER=[
   "}"
 ].join("\n");
 function clamp(n,a,b){return Math.max(a,Math.min(b,n));}
+export function wrapPanoramaYaw(value){
+  if(!Number.isFinite(value))return 0;
+  return ((value+180)%360+360)%360-180;
+}
 
 export function normalizePanoramaView(raw={}){
   return {
     enabled:raw.enabled===true,
-    yaw:clamp(Number.isFinite(raw.yaw)?raw.yaw:0,-180,180),
+    yaw:wrapPanoramaYaw(raw.yaw),
     pitch:clamp(Number.isFinite(raw.pitch)?raw.pitch:0,-65,65),
     horizontalFov:clamp(Number.isFinite(raw.horizontalFov)?raw.horizontalFov:75,35,110)
   };
