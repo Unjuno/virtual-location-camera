@@ -619,6 +619,86 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             context.close()
 
 
+    def test_provider_confirmed_360_street_photo_activates_real_panorama_camera(self):
+        """A licensed, STAC-confirmed sphere loads directly in 360 mode.
+
+        Provider responses are simulated, but the renderer and PNG pixels are
+        real Chromium/WebGL. This never assumes ordinary photographs are 360.
+        """
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1500,"height":1000})
+        page=context.new_page()
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            fixture=page.evaluate("""() => {
+              const pano=document.createElement('canvas');
+              pano.width=2048;pano.height=1024;
+              const ctx=pano.getContext('2d');
+              ctx.fillStyle='#a32127';ctx.fillRect(0,0,2048,1024);
+              ctx.fillStyle='#134ed3';ctx.fillRect(1280,0,512,1024);
+              return pano.toDataURL('image/png');
+            }""")
+            image=base64.b64decode(fixture.split(",",1)[1])
+            uid="af0c80eb-5ce4-424d-9ac3-6accccbe68d4"
+            scene={
+              "provider":"panoramax","id":uid,"lat":48.859870109,"lon":2.29472254,
+              "distanceM":4,"cameraHeading":45.32,"headingDifference":5,
+              "captureDate":"2025-07-21","creator":"Example producer",
+              "imageType":"360","assessment":"near-position-and-heading",
+              "imageUrl":"/api/panoramax-image?id="+uid+"&size=thumb",
+              "downloadUrl":"/api/panoramax-image?id="+uid+"&size=sd",
+              "viewerUrl":"https://api.panoramax.xyz/#focus=pic&pic="+uid,
+              "attribution":"Panoramax · Example producer · Etalab Open Licence 2.0",
+              "license":"Etalab Open Licence 2.0","licenseSpdx":"etalab-2.0",
+              "requiresShareAlike":False,"exactViewVerified":False
+            }
+            page.route("**/api/scenes?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"configured":False,"candidates":[]})
+            ))
+            page.route("**/api/panoramax-scenes?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"configured":True,"candidates":[scene]})
+            ))
+            page.route("**/api/panoramax-image?**",lambda route:route.fulfill(
+              status=200,headers={"content-type":"image/png"},body=image
+            ))
+            page.route("**/api/panoramax-neighbors?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"centerId":uid,"previous":None,"next":None})
+            ))
+            page.locator("#photoRights").check()
+            page.locator("#findScenes").click()
+            page.wait_for_function("() => document.querySelector('#sceneResults').children.length === 1")
+            page.locator("#sceneResults .scene-card button").click()
+            page.wait_for_function("() => document.querySelector('#stage').dataset.panorama === 'true'")
+            self.assertTrue(page.locator("#panoramaToggle").is_checked())
+            self.assertFalse(page.locator("#panoramaControls").is_hidden())
+            self.assertFalse(page.locator("#shutter").is_disabled())
+            page.locator("#panoramaYaw").evaluate(
+              "(el) => {el.value='90';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            with page.expect_download(timeout=15000) as download:
+                page.locator("#shutter").click()
+            with tempfile.TemporaryDirectory() as temp:
+                path=Path(temp)/"image.png"
+                download.value.save_as(path)
+                body=path.read_bytes()
+            self.assertEqual(body[:8],b"\x89PNG\r\n\x1a\n")
+            uri="data:image/png;base64,"+base64.b64encode(body).decode()
+            rgb=page.evaluate("""async uri => {
+              const img=new Image();img.src=uri;await img.decode();
+              const c=document.createElement('canvas');
+              c.width=img.width;c.height=img.height;
+              const g=c.getContext('2d');g.drawImage(img,0,0);
+              return Array.from(g.getImageData(800,260,1,1).data);
+            }""",uri)
+            self.assertGreater(rgb[2],140,"90-degree yaw must reveal actual rightward sector")
+            self.assertLess(rgb[0],120)
+        finally:
+            context.close()
+
+
     def test_real_360_panorama_camera_rotates_and_exports_observed_colours(self):
         """Real WebGL ray-cast of a 2:1 panorama; never a fabricated street view.
 
