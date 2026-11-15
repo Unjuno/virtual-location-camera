@@ -70,6 +70,7 @@ function createUI(fetchOverride = null) {
   elements.occlusionCanvas.getContext = () => fakeCtx;
   elements.worldCanvas.width = 960;
   elements.worldCanvas.height = 540;
+  elements.worldMode.disabled = true; // native HTML disabled attribute
   elements.worldCanvas.getContext = () => fakeCtx;
   const document = {
     activeElement: { tagName: "BODY" },
