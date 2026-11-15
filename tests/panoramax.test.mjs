@@ -83,3 +83,23 @@ test("missing direction is labelled unknown, not inferred from the map",()=>{
   assert.equal(a.cameraHeading,null);
   assert.equal(a.headingDifference,null);
 });
+
+
+test("Panoramax 360 classification is grounded in STAC/GPano metadata, not photo proximity",async()=>{
+  const {isPanoramax360}=await import("../src/panoramax.mjs");
+  assert.equal(isPanoramax360(PARIS_ITEM),false);
+  const metadata={...PARIS_ITEM,properties:{
+    ...PARIS_ITEM.properties,
+    exif:{...PARIS_ITEM.properties.exif,"Xmp.GPano.ProjectionType":"equirectangular"}
+  }};
+  assert.equal(isPanoramax360(metadata),true);
+  const stac={...PARIS_ITEM,properties:{
+    ...PARIS_ITEM.properties,"pers:interior_orientation":{field_of_view:360}
+  }};
+  assert.equal(isPanoramax360(stac),true);
+  const data=normalizePanoramaxResults({features:[metadata]},{
+    lat:48.859870109,lon:2.29472254,heading:45,radiusM:150
+  });
+  assert.equal(data[0].imageType,"360");
+  assert.equal(data[0].exactViewVerified,false);
+});

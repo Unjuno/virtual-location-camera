@@ -509,6 +509,286 @@ class BrowserPhotoE2ETest(unittest.TestCase):
             context.close()
 
 
+    def test_observed_street_sequence_navigates_between_actual_camera_positions(self):
+        """A neighbouring shot must be an observed, licensed picture UUID.
+
+        The test simulates STAC prev/next metadata while exercising Chromium
+        UI, camera coordinates, actor composite and PNG export.
+        """
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1500,"height":1000})
+        page=context.new_page()
+        center="af0c80eb-5ce4-424d-9ac3-6accccbe68d4"
+        next_id="82d00dec-dc38-4a38-9e9a-ffbaddb98e9e"
+        base={
+            "provider":"panoramax","cameraHeading":43,
+            "headingDifference":0,"captureDate":"2025-07-21",
+            "imageType":"perspective","creator":"Test photographer",
+            "assessment":"near-position-and-heading",
+            "attribution":"Panoramax · Test photographer · Etalab Open Licence 2.0",
+            "license":"Etalab Open Licence 2.0","licenseSpdx":"etalab-2.0",
+            "requiresShareAlike":False,"exactViewVerified":False
+        }
+        def candidate(uid,lat,lon,dist):
+            return {
+                **base,"id":uid,"lat":lat,"lon":lon,"distanceM":dist,
+                "imageUrl":"/api/panoramax-image?id="+uid+"&size=thumb",
+                "downloadUrl":"/api/panoramax-image?id="+uid+"&size=sd",
+                "viewerUrl":"https://api.panoramax.xyz/#focus=pic&pic="+uid
+            }
+        first=candidate(center,48.859870109,2.29472254,0)
+        second=candidate(next_id,48.85991,2.29477,7)
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            images=page.evaluate("""() => {
+              function img(colour){
+                const c=document.createElement('canvas');c.width=800;c.height=450;
+                const x=c.getContext('2d');
+                x.fillStyle=colour;x.fillRect(0,0,800,450);
+                return c.toDataURL('image/png');
+              }
+              return {first:img('#d92a31'),second:img('#1c33df')};
+            }""")
+            photo_first=base64.b64decode(images["first"].split(",",1)[1])
+            photo_second=base64.b64decode(images["second"].split(",",1)[1])
+            page.route("**/api/scenes?**",lambda route:route.fulfill(
+                status=200,content_type="application/json",
+                body=json.dumps({"configured":False,"candidates":[]})
+            ))
+            page.route("**/api/panoramax-scenes?**",lambda route:route.fulfill(
+                status=200,content_type="application/json",
+                body=json.dumps({"source":"panoramax","configured":True,"candidates":[first]})
+            ))
+            def photo_proxy(route):
+                route.fulfill(status=200,
+                    headers={"content-type":"image/png"},
+                    body=photo_second if next_id in route.request.url else photo_first)
+            page.route("**/api/panoramax-image?**",photo_proxy)
+            def neighbors(route):
+                selected=next_id if next_id in route.request.url else center
+                content={
+                    "centerId":selected,
+                    "navigationType":"observed-sequence-only",
+                    "previous":first if selected==next_id else None,
+                    "next":second if selected==center else None
+                }
+                route.fulfill(status=200,content_type="application/json",body=json.dumps(content))
+            page.route("**/api/panoramax-neighbors?**",neighbors)
+            page.locator("#photoRights").check()
+            page.locator("#findScenes").click()
+            page.wait_for_function("() => document.querySelector('#sceneResults').children.length === 1")
+            page.locator("#sceneResults .scene-card button").click()
+            page.wait_for_function("() => !document.querySelector('#nextObserved').disabled")
+            self.assertEqual(page.locator("#stage").get_attribute("data-mode"),"photo")
+            self.assertAlmostEqual(float(page.locator("#latitude").input_value()),48.859870109,places=6)
+            page.locator("#nextObserved").click()
+            page.wait_for_function(
+              "() => document.querySelector('#photoStatus').textContent.includes('82d00dec')"
+            )
+            self.assertAlmostEqual(float(page.locator("#latitude").input_value()),48.85991,places=6)
+            self.assertTrue(page.locator("#nextObserved").is_disabled())
+            self.assertFalse(page.locator("#previousObserved").is_disabled())
+
+            with page.expect_download(timeout=15000) as image_download:
+                page.locator("#shutter").click()
+            with tempfile.TemporaryDirectory() as folder:
+                saved=Path(folder)/"photo.png"
+                image_download.value.save_as(saved)
+                photo_b64=base64.b64encode(saved.read_bytes()).decode()
+            pixel=page.evaluate("""async encoded => {
+              const photo=new Image();
+              photo.src='data:image/png;base64,'+encoded;
+              await photo.decode();
+              const canvas=document.createElement('canvas');
+              canvas.width=1600;canvas.height=900;
+              const ctx=canvas.getContext('2d');ctx.drawImage(photo,0,0);
+              return Array.from(ctx.getImageData(100,260,1,1).data);
+            }""",photo_b64)
+            self.assertGreater(pixel[2],140,"The next photo must show the observed blue street")
+            self.assertLess(pixel[0],100)
+
+            with page.expect_download(timeout=15000) as scene_download:
+                page.locator("#sceneExport").click()
+            with tempfile.TemporaryDirectory() as folder:
+                path=Path(folder)/"scene.json"
+                scene_download.value.save_as(path)
+                obj=json.loads(path.read_text("utf-8"))
+            self.assertEqual(obj["background"]["evidence"]["id"],next_id)
+            self.assertFalse(obj["background"]["evidence"]["exactViewVerified"])
+        finally:
+            context.close()
+
+
+    def test_provider_confirmed_360_street_photo_activates_real_panorama_camera(self):
+        """A licensed, STAC-confirmed sphere loads directly in 360 mode.
+
+        Provider responses are simulated, but the renderer and PNG pixels are
+        real Chromium/WebGL. This never assumes ordinary photographs are 360.
+        """
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1500,"height":1000})
+        page=context.new_page()
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            fixture=page.evaluate("""() => {
+              const pano=document.createElement('canvas');
+              pano.width=2048;pano.height=1024;
+              const ctx=pano.getContext('2d');
+              ctx.fillStyle='#a32127';ctx.fillRect(0,0,2048,1024);
+              ctx.fillStyle='#134ed3';ctx.fillRect(1280,0,512,1024);
+              return pano.toDataURL('image/png');
+            }""")
+            image=base64.b64decode(fixture.split(",",1)[1])
+            uid="af0c80eb-5ce4-424d-9ac3-6accccbe68d4"
+            scene={
+              "provider":"panoramax","id":uid,"lat":48.859870109,"lon":2.29472254,
+              "distanceM":4,"cameraHeading":45.32,"headingDifference":5,
+              "captureDate":"2025-07-21","creator":"Example producer",
+              "imageType":"360","assessment":"near-position-and-heading",
+              "imageUrl":"/api/panoramax-image?id="+uid+"&size=thumb",
+              "downloadUrl":"/api/panoramax-image?id="+uid+"&size=sd",
+              "viewerUrl":"https://api.panoramax.xyz/#focus=pic&pic="+uid,
+              "attribution":"Panoramax · Example producer · Etalab Open Licence 2.0",
+              "license":"Etalab Open Licence 2.0","licenseSpdx":"etalab-2.0",
+              "requiresShareAlike":False,"exactViewVerified":False
+            }
+            page.route("**/api/scenes?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"configured":False,"candidates":[]})
+            ))
+            page.route("**/api/panoramax-scenes?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"configured":True,"candidates":[scene]})
+            ))
+            page.route("**/api/panoramax-image?**",lambda route:route.fulfill(
+              status=200,headers={"content-type":"image/png"},body=image
+            ))
+            page.route("**/api/panoramax-neighbors?**",lambda route:route.fulfill(
+              status=200,content_type="application/json",
+              body=json.dumps({"centerId":uid,"previous":None,"next":None})
+            ))
+            page.locator("#photoRights").check()
+            page.locator("#findScenes").click()
+            page.wait_for_function("() => document.querySelector('#sceneResults').children.length === 1")
+            page.locator("#sceneResults .scene-card button").click()
+            page.wait_for_function("() => document.querySelector('#stage').dataset.panorama === 'true'")
+            self.assertTrue(page.locator("#panoramaToggle").is_checked())
+            self.assertFalse(page.locator("#panoramaControls").is_hidden())
+            self.assertFalse(page.locator("#shutter").is_disabled())
+            # Move the test actor away from the sampled camera pixel. We want
+            # to test the observed background direction, not the actor colour.
+            page.locator("#subjectScale").evaluate(
+              "(el) => {el.value='6';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            page.locator("#panoramaYaw").evaluate(
+              "(el) => {el.value='90';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            with page.expect_download(timeout=15000) as download:
+                page.locator("#shutter").click()
+            with tempfile.TemporaryDirectory() as temp:
+                path=Path(temp)/"image.png"
+                download.value.save_as(path)
+                body=path.read_bytes()
+            self.assertEqual(body[:8],b"\x89PNG\r\n\x1a\n")
+            uri="data:image/png;base64,"+base64.b64encode(body).decode()
+            rgb=page.evaluate("""async uri => {
+              const img=new Image();img.src=uri;await img.decode();
+              const c=document.createElement('canvas');
+              c.width=img.width;c.height=img.height;
+              const g=c.getContext('2d');g.drawImage(img,0,0);
+              return Array.from(g.getImageData(800,260,1,1).data);
+            }""",uri)
+            self.assertGreater(rgb[2],140,"90-degree yaw must reveal actual rightward sector")
+            self.assertLess(rgb[0],120)
+        finally:
+            context.close()
+
+
+    def test_real_360_panorama_camera_rotates_and_exports_observed_colours(self):
+        """Real WebGL ray-cast of a 2:1 panorama; never a fabricated street view.
+
+        Source image has four directional colour sectors. A 90-degree yaw MUST
+        change the exported pixel from centre red to right-side blue.
+        """
+        context=self.browser.new_context(accept_downloads=True,viewport={"width":1500,"height":1000})
+        page=context.new_page()
+        errors=[]
+        page.on("pageerror",lambda e:errors.append(str(e)))
+        try:
+            page.route("https://**/*",lambda route:route.abort())
+            page.goto(BASE_URL+"/",wait_until="domcontentloaded")
+            source=page.evaluate("""() => {
+              const pano=document.createElement('canvas');pano.width=2048;pano.height=1024;
+              const g=pano.getContext('2d');
+              for (const [x,w,c] of [
+                [0,256,'#822399'],[256,512,'#15b73b'],
+                [768,512,'#de1829'],[1280,512,'#1623db'],[1792,256,'#822399']
+              ]){g.fillStyle=c;g.fillRect(x,0,w,1024);}
+              return pano.toDataURL('image/png');
+            }""")
+            png=base64.b64decode(source.split(",",1)[1])
+            page.locator("#photoRights").check()
+            page.locator("#photoUpload").set_input_files({
+              "name":"user-provided-360.png","mimeType":"image/png","buffer":png
+            })
+            page.wait_for_function("() => document.querySelector('#stage').dataset.mode === 'photo'")
+            self.assertFalse(page.locator("#panoramaToggle").is_disabled())
+            page.locator("#subjectScale").evaluate(
+              "(el) => {el.value='6';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            page.locator("#panoramaToggle").check()
+            page.wait_for_function("() => document.querySelector('#stage').dataset.panorama === 'true'")
+            self.assertFalse(page.locator("#shutter").is_disabled())
+
+            def output_pixel():
+                with page.expect_download(timeout=15000) as download:
+                    page.locator("#shutter").click()
+                with tempfile.TemporaryDirectory() as root:
+                    path=Path(root)/"photo.png"
+                    download.value.save_as(path)
+                    image_bytes=path.read_bytes()
+                    self.assertEqual(image_bytes[:8],b"\x89PNG\r\n\x1a\n")
+                    self.assertEqual(struct.unpack(">II",image_bytes[16:24]),(1600,900))
+                uri="data:image/png;base64,"+base64.b64encode(image_bytes).decode()
+                return page.evaluate("""async uri => {
+                  const image=new Image();
+                  image.src=uri; await image.decode();
+                  const scratch=document.createElement('canvas');
+                  scratch.width=image.width;scratch.height=image.height;
+                  const c=scratch.getContext('2d');
+                  c.drawImage(image,0,0);
+                  return Array.from(c.getImageData(800,260,1,1).data);
+                }""",uri)
+
+            before=output_pixel()
+            self.assertGreater(before[0],140,"Yaw=0 must use original red centre stripe")
+            self.assertLess(before[2],110)
+
+            page.locator("#panoramaYaw").evaluate(
+              "(el) => {el.value='90';el.dispatchEvent(new Event('input',{bubbles:true}));}"
+            )
+            after=output_pixel()
+            self.assertGreater(after[2],140,"Yaw=90 must use actual blue stripe at 3/4 longitude")
+            self.assertLess(after[0],100)
+            self.assertNotEqual(before[:3],after[:3])
+
+            with page.expect_download(timeout=15000) as scene_download:
+                page.locator("#sceneExport").click()
+            with tempfile.TemporaryDirectory() as temp:
+                path=Path(temp)/"scene.json"
+                scene_download.value.save_as(path)
+                state=json.loads(path.read_text("utf-8"))
+                self.assertEqual(state["background"]["panorama"]["enabled"],True)
+                self.assertEqual(state["background"]["panorama"]["yaw"],90)
+                self.assertTrue(state["background"]["panorama"]["fixedCameraPosition"])
+
+            page.locator("#panoramaToggle").uncheck()
+            self.assertEqual(page.locator("#stage").get_attribute("data-panorama"),"false")
+            self.assertFalse(page.locator("#photoZoom").is_disabled())
+        finally:
+            context.close()
+
+
     def test_live_geospatial_map_initialization(self):
         """Network test: verify real CDN + OpenFreeMap style and 3D map startup.
 

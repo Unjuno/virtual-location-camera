@@ -62,6 +62,22 @@ function getObservedHeading(item) {
   return normalizeHeading(raw);
 }
 
+/**
+ * A panoramic image is confirmed by STAC perspective metadata, not by a
+ * nearby street-level location alone. Exif GPano is the fallback. Image
+ * dimensions are checked AGAIN before allowing the WebGL camera.
+ */
+export function isPanoramax360(item) {
+  const props=item?.properties;
+  if (!props || typeof props !== "object") return false;
+  const projection=String(
+    props["pers:projection"] ?? props?.exif?.["Xmp.GPano.ProjectionType"] ?? ""
+  ).toLowerCase().trim();
+  const fieldOfView=Number(props["pers:interior_orientation"]?.field_of_view);
+  return projection === "equirectangular"
+    || (Number.isFinite(fieldOfView) && fieldOfView >= 359.5 && fieldOfView <= 360.5);
+}
+
 export function panoramaxSearchUrl(lat, lon, radiusM = 200, limit = 30) {
   const c = parseLocation(lat, lon);
   if (!Number.isInteger(radiusM) || radiusM < 25 || radiusM > 200) {
@@ -116,7 +132,7 @@ export function normalizePanoramaxResults(data, request) {
       distanceM:Math.round(distanceM),
       cameraHeading:heading,
       headingDifference:direction===null?null:Math.round(direction),
-      captureDate, lastUpdated, imageType:"perspective",
+      captureDate, lastUpdated, imageType:isPanoramax360(item) ? "360" : "perspective",
       creator,
       assessment:sceneAssessment(distanceM,direction),
       imageUrl:"/api/panoramax-image?id="+id+"&size=thumb",
