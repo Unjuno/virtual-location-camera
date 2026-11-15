@@ -158,7 +158,8 @@ def run_model(files,allow_cpu=False):
     return predictions,device
 
 def create_manifest(out:Path,images:list[Path],count:int,device:str,
-                    lat:float|None,lon:float|None):
+                    lat:float|None,lon:float|None, alignment=None,
+                    photo_sources=None, alignment_error=None):
     if (lat is None)!=(lon is None):raise ValueError("lat/lon must be supplied together.")
     if lat is not None and (not math.isfinite(lat) or not math.isfinite(lon)
        or not -90<=lat<=90 or not -180<=lon<=180):
@@ -174,6 +175,9 @@ def create_manifest(out:Path,images:list[Path],count:int,device:str,
         "geographicReference":{"lat":lat,"lon":lon,"registered":False}
             if lat is not None else None,
         "unobservedRegions":"No points where source data is insufficient.",
+        "estimatedGpsAlignment":alignment,
+        "estimatedGpsAlignmentError":alignment_error,
+        "sourcePhotoAttribution":photo_sources,
         "createdAt":datetime.now(timezone.utc).isoformat()
     }
     out.with_suffix(".json").write_text(
@@ -195,7 +199,26 @@ def main(argv=None)->int:
     predicted,device=run_model(photos,a.allow_cpu)
     xyz,rgb=export_points(predicted,a.max_points)
     count=write_ply(a.output,xyz,rgb)
-    create_manifest(a.output,photos,count,device,a.lat,a.lon)
+    sources_file=a.images/"sources.json"
+    alignment=None
+    reason=None
+    sources=None
+    if sources_file.exists():
+        manifest=json.loads(sources_file.read_text("utf8"))
+        from world.georegister import align_from_predictions
+        try:
+            alignment=align_from_predictions(predicted,photos,manifest)
+        except (KeyError,TypeError,ValueError,ArithmeticError) as error:
+            reason=str(error)
+        if isinstance(manifest.get("photos"),list):
+            sources=[
+                {k:p.get(k) for k in ("filename","provider","creator","license",
+                  "licenseSpdx","licenseUrl","viewerUrl","captureDate")
+                 if isinstance(p.get(k),(str,int,float,type(None)))}
+                for p in manifest["photos"][:12] if isinstance(p,dict)
+            ]
+    create_manifest(a.output,photos,count,device,a.lat,a.lon,
+                    alignment=alignment,photo_sources=sources,alignment_error=reason)
     print(json.dumps({"ply":str(a.output),"points":count,
                       "model":MODEL_ID,"device":device,"registrationVerified":False}))
     return 0
