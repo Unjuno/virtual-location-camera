@@ -8,6 +8,7 @@ import * as compositor from "../src/compositor.mjs";
 import * as scenes from "../src/scenes.mjs";
 import * as panoramax from "../src/panoramax.mjs";
 import { createDepthController } from "../src/depth-ui.mjs";
+import * as panorama from "../src/panorama.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
@@ -21,7 +22,8 @@ function createUI(fetchOverride = null) {
       value: ({
         preset: "times-square", latitude: "40.7580", longitude: "-73.9855",
         zoom: "16.8", pitch: "68", bearing: "-19", subjectScale: "21", exposure: "100",
-        maskBrushRadius: "22", maskBrushMode: "foreground", depthThreshold: "65"
+        maskBrushRadius: "22", maskBrushMode: "foreground", depthThreshold: "65",
+        panoramaYaw: "0", panoramaPitch: "0", panoramaFov: "75"
       })[id] ?? "",
       style: { setProperty(name, value) { this[name] = value; } },
       dataset: {},
@@ -96,9 +98,10 @@ function createUI(fetchOverride = null) {
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/scenes\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/panoramax\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/depth-ui\.mjs["'];/m, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/panorama\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes), ...Object.keys(panoramax), "createDepthController"];
+  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes), ...Object.keys(panoramax), "createDepthController", ...Object.keys(panorama)];
   const mockFetch = fetchOverride || (async url => ({
     ok: true,
     json: async () => url.includes("/api/health") ? { aiConfigured: false } : { configured: false, candidates: [] }
@@ -107,7 +110,14 @@ function createUI(fetchOverride = null) {
     this.name = name; this.type = options.type; this.size = files[0].size;
   };
   const app = new Function("document", "window", "URL", "console", "fetch", "File", ...params, withoutImport);
-  app(document, window, URL, { warn() {}, error() {} }, mockFetch, mockFile, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor), ...Object.values(scenes), ...Object.values(panoramax), createDepthController);
+  app(document, window, URL, { warn() {}, error() {} }, mockFetch, mockFile, ...Object.values(core), ...Object.values(location), ...Object.values(commons), ...Object.values(compositor), ...Object.values(scenes), ...Object.values(panoramax), createDepthController,
+    ...Object.entries(panorama).map(([key,value]) => key === "PanoramaProjector"
+      ? class MockPanoramaProjector {
+          render(ctx,image,view,w,h){ctx.drawImage(image,0,0,w,h);}
+          invalidate(){}
+          dispose(){}
+        }
+      : value));
   return elements;
 }
 
@@ -375,4 +385,40 @@ test("ordinary portrait upload enables optional on-device cutout without breakin
   assert.equal(e.cutoutPerson.disabled,true);
   assert.equal(e.restorePerson.disabled,true);
   assert.equal(e.aiSubjectKind.value,"product");
+});
+
+
+
+test("a confirmed 2:1 panorama rotates observed pixels and saves a perspective composite",async()=>{
+  const e=createUI();
+  e.subjectImage.onload();
+  e.photoRights.checked=true;
+  e.locationPhoto.naturalWidth=4096;
+  e.locationPhoto.naturalHeight=2048;
+  e.photoUpload.events.change({target:{
+    files:[{type:"image/jpeg",size:12000,name:"my-360-image.jpg"}],value:""
+  }});
+  e.locationPhoto.onload();
+  assert.equal(e.panoramaToggle.disabled,false);
+  assert.equal(e.stage.dataset.panorama,"false");
+  e.panoramaToggle.checked=true;
+  e.panoramaToggle.events.change();
+  assert.equal(e.stage.dataset.panorama,"true");
+  assert.equal(e.panoramaControls.hidden,false);
+  assert.equal(e.photoZoom.disabled,true);
+  e.panoramaYaw.value="90";
+  e.panoramaYaw.events.input();
+  assert.equal(e.panoramaYawValue.textContent,"90°");
+  e.panoramaPitch.value="25";
+  e.panoramaPitch.events.input();
+  assert.equal(e.panoramaPitchValue.textContent,"25°");
+  e.panoramaFov.value="55";
+  e.panoramaFov.events.input();
+  assert.equal(e.panoramaFovValue.textContent,"55°");
+  await e.shutter.events.click();
+  assert.equal(e.__capture.downloads.length,1);
+  assert.ok(e.__capture.drawCalls.some(args=>args[0]===e.locationPhoto));
+  e.clearPhoto.events.click();
+  assert.equal(e.stage.dataset.panorama,"false");
+  assert.equal(e.panoramaToggle.disabled,true);
 });
