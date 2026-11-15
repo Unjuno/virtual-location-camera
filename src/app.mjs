@@ -752,7 +752,13 @@ async function importScene(event) {
     }
     moveCamera();
     if (scene.background?.mode === "user-photo") {
-      if (photoLoaded) setBackgroundMode("photo");
+      if (photoLoaded) {
+        const stored=bg.panorama && typeof bg.panorama === "object" ? bg.panorama : {};
+        panoramaView=normalizePanoramaView(stored);
+        if(!panoramaEligible())panoramaView.enabled=false;
+        setBackgroundMode("photo");
+        refreshPanorama();
+      }
       else notice("撮影条件を復元しました。背景写真はJSONに含まれないため、再度アップロードしてください。", true);
     } else {
       setBackgroundMode("map");
@@ -812,6 +818,7 @@ function installLocationPhoto(file, credit = "", sourcePage = null, evidence = n
     photoFile = file;
     photoSourcePageUrl = sourcePage;
     photoLoaded = true;
+    resetPanoramaForBackground(evidence?.imageType === "360");
     backgroundRevision++;
     depthController.reset("写真を切り替えたため前景マスクを解除しました。");
     selectedSceneEvidence = evidence ? { ...evidence, exactViewVerified: false } : null;
@@ -871,8 +878,9 @@ function clearLocationPhoto() {
   photoSourcePageUrl = null;
   backgroundRevision++;
   depthController.reset("背景画像を解除したため前景マスクも解除しました。");
-  resetSceneEvidence();
   photoLoaded = false;
+  resetPanoramaForBackground(false);
+  resetSceneEvidence();
   $("photoCredit").value = "";
   $("photoStatus").textContent = "写真は未設定です。利用権のある現地写真を選んでください。";
   $("clearPhoto").disabled = true;
@@ -1041,6 +1049,7 @@ async function loadObservedScene(candidate) {
       distanceM: candidate.distanceM,
       cameraHeading: candidate.cameraHeading,
       headingDifference: candidate.headingDifference,
+      imageType: candidate.imageType,
       captureDate: candidate.captureDate,
       lastUpdated: candidate.lastUpdated || candidate.captureDate || null,
       license: candidate.license, licenseSpdx: candidate.licenseSpdx || "CC-BY-SA-4.0",
@@ -1202,6 +1211,56 @@ function initializeUI() {
   $("photoZoom").addEventListener("input", () => updateStudioControl("photoZoom", "photoZoom", 100, v => v + "%"));
   $("photoFocusX").addEventListener("input", () => updateStudioControl("photoFocusX", "photoFocusX", 100, v => v + "%"));
   $("photoFocusY").addEventListener("input", () => updateStudioControl("photoFocusY", "photoFocusY", 100, v => v + "%"));
+
+  $("panoramaToggle").addEventListener("change", () => {
+    if(!panoramaEligible() || !photoActive()){
+      $("panoramaToggle").checked=false;
+      notice("全天球画像ではありません。2:1の360°写真を読み込んでください。",true);
+      return;
+    }
+    panoramaView=normalizePanoramaView({
+      ...panoramaView,enabled:$("panoramaToggle").checked
+    });
+    depthController.reset("360°視点を変更したため前景マスクを解除しました。");
+    refreshPanorama();
+  });
+  for(const [id,key] of [
+    ["panoramaYaw","yaw"],["panoramaPitch","pitch"],["panoramaFov","horizontalFov"]
+  ]){
+    $(id).addEventListener("input",() => {
+      changePanoramaView({[key]:Number($(id).value)});
+    });
+  }
+  $("panoramaReset").addEventListener("click",() => {
+    changePanoramaView({yaw:0,pitch:0,horizontalFov:75});
+  });
+
+  const panoramaSurface=$("photoCanvas");
+  panoramaSurface.addEventListener("pointerdown",event => {
+    if(!panoramaActive() || (event.pointerType==="mouse" && event.button!==0))return;
+    event.preventDefault();
+    panoramaPointer={id:event.pointerId,x:event.clientX,y:event.clientY,
+      startYaw:panoramaView.yaw,startPitch:panoramaView.pitch};
+    depthController.reset("360°の視線を変更したため前景マスクを解除しました。");
+    panoramaSurface.setPointerCapture(event.pointerId);
+  });
+  panoramaSurface.addEventListener("pointermove",event => {
+    if(!panoramaActive() || !panoramaPointer || event.pointerId!==panoramaPointer.id)return;
+    event.preventDefault();
+    const bounds=panoramaSurface.getBoundingClientRect();
+    if(!(bounds.width>0 && bounds.height>0))return;
+    const deltaYaw=(event.clientX-panoramaPointer.x)/bounds.width*panoramaView.horizontalFov;
+    const deltaPitch=(event.clientY-panoramaPointer.y)/bounds.height*
+      panoramaView.horizontalFov*(bounds.height/bounds.width);
+    // Image moves with pointer; looking direction moves in the opposite direction.
+    changePanoramaView({
+      yaw:panoramaPointer.startYaw-deltaYaw,
+      pitch:panoramaPointer.startPitch+deltaPitch
+    },{clearMask:false});
+  });
+  for(const eventName of ["pointerup","pointercancel","lostpointercapture"]){
+    panoramaSurface.addEventListener(eventName,()=>{panoramaPointer=null;});
+  }
   $("shutter").addEventListener("click", takePhoto);
   $("sceneExport").addEventListener("click", exportScene);
   $("sceneImport").addEventListener("change", importScene);
@@ -1236,6 +1295,7 @@ function initializeUI() {
   window.addEventListener("beforeunload", () => {
     if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
     if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
+    panoramaRenderer?.dispose();
   });
   setPosition();
   syncStudioInputs();
