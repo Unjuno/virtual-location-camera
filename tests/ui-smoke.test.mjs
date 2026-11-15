@@ -9,6 +9,7 @@ import * as scenes from "../src/scenes.mjs";
 import * as panoramax from "../src/panoramax.mjs";
 import { createDepthController } from "../src/depth-ui.mjs";
 import * as panorama from "../src/panorama.mjs";
+import { createWorldController } from "../src/world-ui.mjs";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const source = readFileSync(new URL("../src/app.mjs", import.meta.url), "utf8");
@@ -23,7 +24,9 @@ function createUI(fetchOverride = null) {
         preset: "times-square", latitude: "40.7580", longitude: "-73.9855",
         zoom: "16.8", pitch: "68", bearing: "-19", subjectScale: "21", exposure: "100",
         maskBrushRadius: "22", maskBrushMode: "foreground", depthThreshold: "65",
-        panoramaYaw: "0", panoramaPitch: "0", panoramaFov: "75"
+        panoramaYaw: "0", panoramaPitch: "0", panoramaFov: "75",
+        worldYaw:"0",worldPitch:"0",worldFov:"65",
+        worldActorX:"0",worldActorY:"-0.5",worldActorZ:"-3.5",worldActorHeight:"1.7"
       })[id] ?? "",
       style: { setProperty(name, value) { this[name] = value; } },
       dataset: {},
@@ -65,6 +68,9 @@ function createUI(fetchOverride = null) {
   elements.occlusionCanvas.width = 800;
   elements.occlusionCanvas.height = 450;
   elements.occlusionCanvas.getContext = () => fakeCtx;
+  elements.worldCanvas.width = 960;
+  elements.worldCanvas.height = 540;
+  elements.worldCanvas.getContext = () => fakeCtx;
   const document = {
     activeElement: { tagName: "BODY" },
     body: { appendChild() {} },
@@ -99,9 +105,10 @@ function createUI(fetchOverride = null) {
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/panoramax\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/depth-ui\.mjs["'];/m, "")
     .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/panorama\.mjs["'];/m, "")
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["']\.\/world-ui\.mjs["'];/m, "")
     .replace(/\nconnectWorld\(\);\s*$/, "\n");
   assert.equal(withoutImport.includes('from "./core.mjs"'), false);
-  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes), ...Object.keys(panoramax), "createDepthController", ...Object.keys(panorama)];
+  const params = [...Object.keys(core), ...Object.keys(location), ...Object.keys(commons), ...Object.keys(compositor), ...Object.keys(scenes), ...Object.keys(panoramax), "createDepthController", ...Object.keys(panorama), "createWorldController"];
   const mockFetch = fetchOverride || (async url => ({
     ok: true,
     json: async () => url.includes("/api/health") ? { aiConfigured: false } : { configured: false, candidates: [] }
@@ -117,7 +124,14 @@ function createUI(fetchOverride = null) {
           invalidate(){}
           dispose(){}
         }
-      : value));
+      : value),
+    args => createWorldController({...args, RendererClass:class MockWorldRenderer {
+      constructor(canvas){this.canvas=canvas;this.data=null;}
+      load(data){this.data=data;}
+      setActor(){}
+      render(){elements.__capture.worldRenders=(elements.__capture.worldRenders||0)+1;}
+      dispose(){}
+    }}));
   return elements;
 }
 
@@ -421,4 +435,34 @@ test("a confirmed 2:1 panorama rotates observed pixels and saves a perspective c
   e.clearPhoto.events.click();
   assert.equal(e.stage.dataset.panorama,"false");
   assert.equal(e.panoramaToggle.disabled,true);
+});
+
+
+test("3D reconstructed world demo has a free camera and a world-anchored foreground",async()=>{
+  const e=createUI();
+  e.subjectImage.onload();
+  assert.equal(e.worldMode.disabled,true);
+  e.worldDemo.events.click();
+  assert.equal(e.stage.dataset.mode,"world");
+  assert.equal(e.worldCanvas.hidden,false);
+  assert.equal(e.worldControls.hidden,false);
+  assert.equal(e.worldMode.disabled,false);
+  assert.match(e.worldStatus.textContent,/架空のサンプル/);
+  assert.ok(e.__capture.worldRenders>0);
+  const first=e.__capture.worldRenders;
+  e.worldForward.events.click();
+  assert.ok(e.__capture.worldRenders>first);
+  e.worldActorX.value="1.5";
+  e.worldActorX.events.input();
+  assert.equal(e.worldActorXValue.textContent,"1.5");
+  e.worldYaw.value="90";
+  e.worldYaw.events.input();
+  assert.equal(e.worldYawValue.textContent,"90°");
+  await e.shutter.events.click();
+  assert.equal(e.__capture.downloads.length,1);
+  assert.ok(e.__capture.drawCalls.some(args=>args[0]===e.worldCanvas));
+  assert.match(e.__capture.labels.join(" " ),/SYNTHETIC DEMO/);
+  e.worldClear.events.click();
+  assert.equal(e.stage.dataset.mode,"map");
+  assert.equal(e.worldMode.disabled,true);
 });
