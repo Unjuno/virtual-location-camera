@@ -47,6 +47,48 @@ let backgroundRevision = 0;
 let panoramaView = normalizePanoramaView();
 let panoramaRenderer = null;
 let panoramaPointer = null;
+let observedNeighbors = {previous:null,next:null};
+let observedNavigationSequence = 0;
+
+function resetObservedNeighbors(){
+  observedNavigationSequence++;
+  observedNeighbors={previous:null,next:null};
+  $("observedNavigation").hidden=true;
+  $("previousObserved").disabled=true;
+  $("nextObserved").disabled=true;
+  $("observedNavigationStatus").textContent="この写真の前後の撮影地点は未確認です。";
+}
+async function loadObservedNeighbors(evidence){
+  resetObservedNeighbors();
+  if(evidence?.provider!=="panoramax" || !validPanoramaxId(evidence.id))return;
+  const sequence=observedNavigationSequence;
+  $("observedNavigation").hidden=false;
+  $("observedNavigationStatus").textContent="同じ撮影シーケンスの実写地点を確認中…";
+  try{
+    const response=await fetch(
+      "./api/panoramax-neighbors?id="+encodeURIComponent(evidence.id),
+      {cache:"no-store",credentials:"omit"}
+    );
+    const data=await response.json();
+    if(sequence!==observedNavigationSequence || selectedSceneEvidence?.id!==evidence.id)return;
+    if(!response.ok)throw new Error(data.error||"前後の撮影地点を確認できません。");
+    observedNeighbors={
+      previous:data.previous?.provider==="panoramax"?data.previous:null,
+      next:data.next?.provider==="panoramax"?data.next:null
+    };
+    $("previousObserved").disabled=!observedNeighbors.previous;
+    $("nextObserved").disabled=!observedNeighbors.next;
+    $("observedNavigationStatus").textContent=(
+      (observedNeighbors.previous?"前の撮影地点あり":"前の撮影地点なし")
+      +" ／ "+(observedNeighbors.next?"次の撮影地点あり":"次の撮影地点なし")
+      +"。元の撮影シーケンスに記録された画像のみ利用します。"
+    );
+  }catch(error){
+    if(sequence!==observedNavigationSequence)return;
+    $("observedNavigationStatus").textContent="前後の実写地点を取得できません："+error.message;
+  }
+}
+
 
 function panoramaEligible() {
   const img=$("locationPhoto");
@@ -109,6 +151,7 @@ function changePanoramaView(values,{clearMask=true}={}) {
 function resetSceneEvidence() {
   selectedSceneEvidence = null;
   $("sceneSelected").hidden = true;
+  resetObservedNeighbors();
 }
 function sceneSearchStale() {
   const status = $("sceneGroundingStatus");
@@ -835,9 +878,18 @@ function installLocationPhoto(file, credit = "", sourcePage = null, evidence = n
     } else resetSceneEvidence();
     if (credit) $("photoCredit").value = credit.slice(0, 70);
     else if (replacingCommonsPhoto) $("photoCredit").value = "";
+    if(evidence?.provider==="panoramax" && Number.isFinite(evidence.lat) && Number.isFinite(evidence.lon)){
+      // The chosen photo was captured at THIS point, which may differ by
+      // tens of metres from the original search viewport centre.
+      $("latitude").value=Number(evidence.lat).toFixed(7);
+      $("longitude").value=Number(evidence.lon).toFixed(7);
+      $("preset").value="custom";
+      moveCamera();
+    }
     $("photoStatus").textContent = "背景写真：" + file.name + "。地図上の地点との一致は手動で確認してください。";
     $("clearPhoto").disabled = false;
     setBackgroundMode("photo");
+    loadObservedNeighbors(selectedSceneEvidence);
     notice("実在の場所の写真を背景に設定しました。地図の読み込みに依存せず合成できます。");
   };
   img.onerror = () => {
@@ -1155,6 +1207,12 @@ function initializeUI() {
   $("photoMode").addEventListener("click", () => setBackgroundMode("photo"));
   $("clearPhoto").addEventListener("click", clearLocationPhoto);
   $("findScenes").addEventListener("click", findObservedScenes);
+  $("previousObserved").addEventListener("click",()=>{
+    if(observedNeighbors.previous)loadObservedScene(observedNeighbors.previous);
+  });
+  $("nextObserved").addEventListener("click",()=>{
+    if(observedNeighbors.next)loadObservedScene(observedNeighbors.next);
+  });
   $("mapillaryShareAlike").addEventListener("change", updateCaptureAvailability);
   $("photoRights").addEventListener("change", updateCaptureAvailability);
   for (const id of ["latitude", "longitude"]) {
