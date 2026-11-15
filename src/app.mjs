@@ -14,6 +14,9 @@ import {
 import { normalizeHeading } from "./scenes.mjs";
 import { validPanoramaxId } from "./panoramax.mjs";
 import { createDepthController } from "./depth-ui.mjs";
+import {
+  PanoramaProjector, normalizePanoramaView, isEquirectangularDimensions
+} from "./panorama.mjs";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
@@ -41,6 +44,67 @@ let photoSourcePageUrl = null;
 let selectedSceneEvidence = null;
 let sceneSearchSequence = 0;
 let backgroundRevision = 0;
+let panoramaView = normalizePanoramaView();
+let panoramaRenderer = null;
+let panoramaPointer = null;
+
+function panoramaEligible() {
+  const img=$("locationPhoto");
+  return photoLoaded && isEquirectangularDimensions(img.naturalWidth,img.naturalHeight);
+}
+function panoramaActive() {
+  return photoActive() && panoramaView.enabled && panoramaEligible();
+}
+function syncPanoramaControls() {
+  const eligible=panoramaEligible();
+  const active=panoramaActive();
+  $("panoramaToggle").disabled=!eligible;
+  $("panoramaToggle").checked=active;
+  $("panoramaControls").hidden=!active;
+  stage.dataset.panorama=active?"true":"false";
+  for(const id of ["photoZoom","photoFocusX","photoFocusY"]) {
+    $(id).disabled=!photoLoaded || active;
+  }
+  $("panoramaYaw").value=String(Math.round(panoramaView.yaw));
+  $("panoramaPitch").value=String(Math.round(panoramaView.pitch));
+  $("panoramaFov").value=String(Math.round(panoramaView.horizontalFov));
+  $("panoramaYawValue").textContent=Math.round(panoramaView.yaw)+"°";
+  $("panoramaPitchValue").textContent=Math.round(panoramaView.pitch)+"°";
+  $("panoramaFovValue").textContent=Math.round(panoramaView.horizontalFov)+"°";
+  if(!eligible){
+    $("panoramaStatus").textContent="2:1の360°全天球画像を設定すると使用できます。一般写真を360°として扱わないでください。";
+  }else if(active){
+    $("panoramaStatus").textContent="画像中央を0°とした相対的な視点です。背景をドラッグして向きを変えられます。北方向・移動視点は未校正です。";
+  }else{
+    $("panoramaStatus").textContent="2:1画像を読み込みました。全天球画像であることを確認してから360°モードを有効にしてください。";
+  }
+}
+function resetPanoramaForBackground(observedAs360=false) {
+  panoramaView=normalizePanoramaView({
+    enabled:observedAs360 && panoramaEligible()
+  });
+  panoramaRenderer?.invalidate();
+  panoramaPointer=null;
+  syncPanoramaControls();
+}
+function refreshPanorama() {
+  syncPanoramaControls();
+  try {
+    if(photoActive())renderPhotoPreview();
+  }catch(error){
+    panoramaView.enabled=false;
+    syncPanoramaControls();
+    if(photoActive())renderPhotoPreview();
+    notice("360°描画を使用できません："+error.message,true);
+  }
+}
+function changePanoramaView(values,{clearMask=true}={}) {
+  if(!panoramaActive())return;
+  panoramaView=normalizePanoramaView({...panoramaView,...values});
+  if(clearMask)depthController.reset("視点が変わったため、前景マスクと深度を解除しました。");
+  refreshPanorama();
+}
+
 
 function resetSceneEvidence() {
   selectedSceneEvidence = null;
@@ -80,15 +144,15 @@ function setBackgroundMode(mode) {
   stage.dataset.mode = mode;
   $("locationPhoto").hidden = true;
   $("photoCanvas").hidden = mode !== "photo";
-  for (const id of ["photoZoom", "photoFocusX", "photoFocusY"]) {
-    $(id).disabled = !photoLoaded;
-  }
+  syncPanoramaControls();
   $("mapMode").classList.toggle("selected", mode === "map");
   $("photoMode").classList.toggle("selected", mode === "photo");
   $("mapMode").setAttribute("aria-pressed", String(mode === "map"));
   $("photoMode").setAttribute("aria-pressed", String(mode === "photo"));
   $("viewHelp").textContent = mode === "photo"
-    ? "現地写真の上で被写体をドラッグ ／ 地図で地点を変更しても背景写真は自動更新されません"
+    ? (panoramaActive()
+      ? "背景をドラッグして360°視線を回す ／ 人物をドラッグして配置 ／ 撮影位置は固定"
+      : "被写体をドラッグして配置 ／ 背景写真の撮影地点は自動更新されません")
     : "被写体をドラッグして配置 ／ 背景をドラッグして視点変更";
   $("sceneLabel").textContent = "SYNTHETIC COMPOSITE · NOT AN ON-SITE PHOTOGRAPH";
   $("mapState").textContent = mode === "photo" ? "実景写真モード / 合成撮影" : (mapLoaded ? "3D地図" : "地図に接続中");
@@ -104,11 +168,16 @@ function renderSceneBackground(ctx, width, height) {
   ctx.filter = "brightness(" + exposure + ") saturate(1.1)";
   if (photoActive()) {
     const img = $("locationPhoto");
-    const r = coverSourceRect(
-      img.naturalWidth, img.naturalHeight, width, height,
-      studio.photoFocusX, studio.photoFocusY, studio.photoZoom
-    );
-    ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, width, height);
+    if(panoramaActive()){
+      if(!panoramaRenderer)panoramaRenderer=new PanoramaProjector();
+      panoramaRenderer.render(ctx,img,panoramaView,width,height);
+    }else{
+      const r = coverSourceRect(
+        img.naturalWidth, img.naturalHeight, width, height,
+        studio.photoFocusX, studio.photoFocusY, studio.photoZoom
+      );
+      ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, width, height);
+    }
   } else {
     if (!map || !mapLoaded) throw new Error("地図がまだ読み込まれていません。");
     ctx.drawImage(map.getCanvas(), 0, 0, width, height);
@@ -610,6 +679,9 @@ function exportScene() {
       locationVerified: false,
       filePage: photoActive() ? photoSourcePageUrl : null,
       evidence: photoActive() ? selectedSceneEvidence : null,
+      panorama: photoActive() && panoramaActive()
+        ? {...panoramaView,relativeHeading:true,fixedCameraPosition:true}
+        : {enabled:false},
       photoZoom: studio.photoZoom,
       photoFocusX: studio.photoFocusX,
       photoFocusY: studio.photoFocusY,
