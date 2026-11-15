@@ -246,6 +246,11 @@
         <span>復元した3D点群を読み込む（PLY）</span><strong>.ply ⇧</strong>
       </label>
       <input id="worldUpload" type="file" accept=".ply,application/octet-stream" hidden>
+      <label class="upload-control" for="worldManifestUpload">
+        <span>復元位置・出典のメタデータ（任意）</span><strong>.json ⇧</strong>
+      </label>
+      <input id="worldManifestUpload" type="file" accept=".json,application/json" hidden>
+      <p id="worldManifestStatus" class="hint">MapAnythingが出力したPLYと同名のJSONを選ぶと、元画像の出典と位置推定誤差を確認できます。GPSと3D点群の対応は実測・検証済みではありません。</p>
       <div class="field">
         <label for="worldCredit">元画像の撮影者・ライセンス・出典</label>
         <input id="worldCredit" type="text" maxlength="100" placeholder="例：撮影者 / 原画像URL / ライセンス">
