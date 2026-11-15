@@ -105,7 +105,9 @@ export class PanoramaProjector {
     gl.bindTexture(gl.TEXTURE_2D,texture);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+    // Non-power-of-two 2:1 photos require CLAMP_TO_EDGE in WebGL 1.
+    // Longitude wrapping is handled by the fract() in the fragment shader.
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     this.gl=gl;this.canvas=canvas;this.program=program;
     this.texture=texture;this.buffer=buffer;
@@ -166,6 +168,7 @@ export class PanoramaProjector {
     if(error!==gl.NO_ERROR)throw new Error("Panorama rendering failed (WebGL "+error+").");
     targetContext.drawImage(canvas,0,0,width,height);
   }
+  invalidate(){this.source=null;}
   dispose(){
     const {gl}=this;
     gl.deleteTexture(this.texture);gl.deleteBuffer(this.buffer);
