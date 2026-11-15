@@ -190,3 +190,9 @@ canvas.location-photo{position:absolute;inset:0;z-index:2;width:100%;height:100%
 .observed-navigation-buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
 .observed-navigation-buttons button{min-height:40px;font-size:11px;white-space:normal}
 .observed-navigation-buttons button:disabled{opacity:.45;cursor:not-allowed}
+
+
+/* Author-level display rules must not override HTML hidden state when
+   switching from licensed photo to the real 3D map. */
+canvas.location-photo[hidden],
+canvas.occlusion-layer[hidden]{display:none!important}
