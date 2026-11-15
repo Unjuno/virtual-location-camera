@@ -398,6 +398,8 @@ class AppHandler(BaseHTTPRequestHandler):
             })
         if path == "/api/panoramax-scenes":
             return self.respond_json(503, {"error": "Panoramax is available on the Node/Vercel server. Use Commons or your own photos in the local GPU server."})
+        if path == "/api/panoramax-neighbors":
+            return self.respond_json(503, {"error": "連続街路写真の検索はNode/Vercelサーバーで利用できます。"})
         if path == "/api/panoramax-image":
             return self.respond_json(503, {"error": "Panoramax image proxy requires Node/Vercel."})
         if path == "/api/scene-image":
