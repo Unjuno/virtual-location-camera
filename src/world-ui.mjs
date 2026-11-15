@@ -11,7 +11,8 @@ import {
 } from "./world3d.mjs";
 
 export function createWorldController({
-  dom, actorImage, switchMode, currentMode, notify, refreshCapture
+  dom, actorImage, switchMode, currentMode, notify, refreshCapture,
+  RendererClass=WorldPointRenderer
 }){
   const $=id=>dom.getElementById(id);
   let renderer=null;
@@ -33,7 +34,7 @@ export function createWorldController({
       +" · location alignment not verified";
   };
   function ensure(){
-    if(!renderer)renderer=new WorldPointRenderer($("worldCanvas"));
+    if(!renderer)renderer=new RendererClass($("worldCanvas"));
     return renderer;
   }
   function syncInputs(){
