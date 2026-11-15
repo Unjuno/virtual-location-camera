@@ -200,7 +200,7 @@ function setBackgroundMode(mode) {
   $("sceneLabel").textContent = "SYNTHETIC COMPOSITE · NOT AN ON-SITE PHOTOGRAPH";
   $("mapState").textContent = mode === "photo" ? "実景写真モード / 合成撮影" : (mapLoaded ? "3D地図" : "地図に接続中");
   updateCaptureAvailability();
-  if (mode === "photo") renderPhotoPreview();
+  if (mode === "photo") refreshPanorama();
   else depthController.render();
 }
 
@@ -1085,6 +1085,7 @@ async function loadObservedScene(candidate) {
     return;
   }
   try {
+    resetObservedNeighbors();
     $("sceneGroundingStatus").textContent = "指定した街路画像を読み込んでいます…";
     const selectedImageUrl = isPanoramax ? candidate.downloadUrl : candidate.imageUrl;
     const response = await fetch(selectedImageUrl, { credentials: "omit", cache: "no-store" });
