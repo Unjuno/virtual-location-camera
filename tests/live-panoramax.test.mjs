@@ -23,3 +23,24 @@ test("real public Panoramax API returns licensed photos and same-origin JPEG", {
   console.log("PROVIDER LIVE:",photo.provider,photo.id,photo.distanceM+" m",
     photo.license,photo.cameraHeading+"°",preview.bytes.length+" JPEG bytes");
 });
+
+
+test("live Panoramax capture-sequence prev/next metadata is usable without a token", {
+  skip:process.env.PANORAMAX_LIVE!=="1"
+},async()=>{
+  const {findPanoramaxNeighbors}=await import("../api/panoramax-neighbors.js");
+  const id="af0c80eb-5ce4-424d-9ac3-6accccbe68d4";
+  const result=await findPanoramaxNeighbors(id);
+  assert.equal(result.source,"panoramax");
+  assert.equal(result.centerId,id);
+  const observed=[result.previous,result.next].filter(Boolean);
+  assert.ok(observed.length>0,"The referenced Paris observation has no usable adjacent photo");
+  for(const photo of observed){
+    assert.equal(photo.provider,"panoramax");
+    assert.ok(photo.distanceM<=212);
+    assert.ok(["etalab-2.0","CC-BY-SA-4.0"].includes(photo.licenseSpdx));
+    assert.equal(photo.exactViewVerified,false);
+  }
+  console.log("PROVIDER SEQUENCE LIVE:",result.centerId,
+    observed.map(p=>p.id+" ("+p.distanceM+"m, "+p.license+")").join("; "));
+});
