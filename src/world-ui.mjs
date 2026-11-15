@@ -138,6 +138,16 @@ export function createWorldController({
     status("点群を解除しました。3D復元には重複する実景写真とMapAnythingローカルGPUが必要です。");
     refreshCapture();
   }
+  function restore(snapshot){
+    if(!ready() || !snapshot || snapshot.kind!=="multiview-reconstructed-pointcloud"){
+      return false;
+    }
+    view=normalizedWorldCamera(snapshot.camera);
+    actor=normalizedWorldActor(snapshot.person);
+    syncInputs();
+    if(active())renderPreview();
+    return true;
+  }
   function snapshot(){
     return {
       kind:"multiview-reconstructed-pointcloud",
@@ -222,5 +232,5 @@ export function createWorldController({
     syncInputs();
   }
   return {init,ready,active,allowed,credit,clear,syncMode,renderPreview,
-    exportTo,snapshot,loadDemo};
+    exportTo,snapshot,restore,loadDemo};
 }
