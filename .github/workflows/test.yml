@@ -32,6 +32,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_local_ai.py' -v
       - name: Validate multiview point-cloud export without GPU weights
         run: python -m unittest discover -s tests -p 'test_world_reconstruction.py' -v
+      - name: Validate estimated photo/GPS calibration and degeneracy guards
+        run: python -m unittest discover -s tests -p 'test_world_georegistration.py' -v
       - name: Live Panoramax integration (external service, non-gating)
         continue-on-error: true
         env:
